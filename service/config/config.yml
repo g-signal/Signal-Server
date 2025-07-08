@@ -549,3 +549,7 @@ externalRequestFilter:
 
 idlePrimaryDeviceReminder:
   minIdleDuration: P30D
+awsCredentialsProvider:
+  type: static
+  accessKeyId: secret://aws.accessKeyId
+  secretAccessKey: secret://aws.secretAccessKey

@@ -9,7 +9,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import io.dropwizard.jackson.Discoverable;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", defaultImpl = DefaultAwsCredentialsFactory.class)
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", defaultImpl = StaticAwsCredentialsFactory.class)
 public interface AwsCredentialsProviderFactory extends Discoverable {
 
   AwsCredentialsProvider build();
