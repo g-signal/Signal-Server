@@ -10,34 +10,14 @@ logging:
       threshold: ALL
       timeZone: UTC
       target: stdout
-    - type: logstashtcpsocket
-      destination: example.com:10516
-      apiKey: secret://datadog.apiKey
-      environment: staging
 
 metrics:
   reporters:
-    - type: signal-datadog
+    - type: console
       frequency: 10 seconds
       tags:
         - "env:staging"
         - "service:chat"
-      udpTransport:
-        statsdHost: localhost
-        port: 8125
-      excludesAttributes:
-        - m1_rate
-        - m5_rate
-        - m15_rate
-        - mean_rate
-        - stddev
-      useRegexFilters: true
-      excludes:
-        - ^.+\.total$
-        - ^.+\.request\.filtering$
-        - ^.+\.response\.filtering$
-        - ^executor\..+$
-        - ^lettuce\..+$
   reportOnStop: true
 
 tlsKeyStore:
@@ -258,13 +238,16 @@ messageCache: # Redis server configuration for message store cache
   cluster:
     configurationUri: redis://redis.example.com:6379/
 
+#ok
 gcpAttachments: # GCP Storage configuration
-  domain: example.com
-  email: user@example.cocm
+  domain: https://agjali2qfa.storage.googleapis.com
+  email: gcp-425@graphite-tesla-468905-p0.iam.gserviceaccount.com
   maxSizeInBytes: 1024
   pathPrefix:
   rsaSigningKey: secret://gcpAttachments.rsaSigningKey
 
+
+#不使用，在severcode里，改一行代码，不使用这个存储服务
 tus:
   uploadUri: https://example.org/upload
   userAuthenticationTokenSharedSecret: secret://tus.userAuthenticationTokenSharedSecret
@@ -286,23 +269,27 @@ cdn:
     secretAccessKey: secret://cdn.accessSecret
   region: us-west-2  # AWS region
 
+#对应tus，不使用，只使用 2 gcs
 cdn3StorageManager:
   baseUri: https://storage-manager.example.com
   clientId: example
   clientSecret: secret://cdn3StorageManager.clientSecret
   sourceSchemes:
     2: gcs
-    3: r2
+    3: r2   #tus
 
+# ok
 dogstatsd:
   environment: dev
   host: 127.0.0.1
 
+# ok
 openTelemetry:
-  enabled: true
+  enabled: false
   environment: dev
   url: http://127.0.0.1:4318/
 
+#
 unidentifiedDelivery:
   certificate: CgIIAQ==
   privateKey: secret://unidentifiedDelivery.privateKey
@@ -359,6 +346,8 @@ remoteConfig:
   globalConfig: # keys and values that are given to clients on GET /v1/config
     EXAMPLE_KEY: VALUE
 
+
+#crypto支付，后期再改造
 paymentsService:
   userAuthenticationTokenSharedSecret: secret://paymentsService.userAuthenticationTokenSharedSecret
   paymentCurrencies:
@@ -370,6 +359,7 @@ paymentsService:
     coinGeckoCurrencyIds:
       MOB: mobilecoin
 
+#保留不动
 badges:
   badges:
     - id: TEST
@@ -518,7 +508,9 @@ turn:
     urls:
       - turn:turn.example.com:80
     urlsWithIps:
-      - turn:%s
+      - turn:%s    apiToken: secret://turn.cloudflare.apiToken
+    endpoint: https://rtc.live.cloudflare.com/v1/turn/keys/LMNOP/credentials/generate
+    urls:
       - turn:%s:80?transport=tcp
       - turns:%s:443?transport=tcp
     requestedCredentialTtl: PT24H
