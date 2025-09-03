@@ -10,10 +10,11 @@ logging:
       threshold: ALL
       timeZone: UTC
       target: stdout
-    - type: logstashtcpsocket
-      destination: example.com:10516
-      apiKey: secret://datadog.apiKey
-      environment: staging
+      #暂时不接日志
+#    - type: logstashtcpsocket
+#      destination: example.com:10516
+#      apiKey: secret://datadog.apiKey
+#      environment: staging
 
 metrics:
   reporters:
@@ -349,8 +350,8 @@ backupsZkConfig:
   serverSecret: secret://backupsZkConfig.serverSecret
 
 dynamicConfig:
-  s3Region: a-region
-  s3Bucket: a-bucket
+  s3Region: us-west-2
+  s3Bucket: ba-bucket0903
   objectKey: dynamic-config.yaml
   maxSize: 100000
   refreshInterval: PT10S
