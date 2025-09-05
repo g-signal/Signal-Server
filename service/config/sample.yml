@@ -508,9 +508,7 @@ turn:
     urls:
       - turn:turn.example.com:80
     urlsWithIps:
-      - turn:%s    apiToken: secret://turn.cloudflare.apiToken
-    endpoint: https://rtc.live.cloudflare.com/v1/turn/keys/LMNOP/credentials/generate
-    urls:
+      - turn:%s
       - turn:%s:80?transport=tcp
       - turns:%s:443?transport=tcp
     requestedCredentialTtl: PT24H
