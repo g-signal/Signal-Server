@@ -115,19 +115,19 @@ public class SubscriptionController {
       @Nonnull SubscriptionConfiguration subscriptionConfiguration,
       @Nonnull OneTimeDonationConfiguration oneTimeDonationConfiguration,
       @Nonnull SubscriptionManager subscriptionManager,
-      @Nonnull StripeManager stripeManager,
-      @Nonnull BraintreeManager braintreeManager,
-      @Nonnull GooglePlayBillingManager googlePlayBillingManager,
-      @Nonnull AppleAppStoreManager appleAppStoreManager,
+      StripeManager stripeManager,
+      BraintreeManager braintreeManager,
+      GooglePlayBillingManager googlePlayBillingManager,
+      AppleAppStoreManager appleAppStoreManager,
       @Nonnull BadgeTranslator badgeTranslator,
       @Nonnull BankMandateTranslator bankMandateTranslator) {
     this.subscriptionManager = subscriptionManager;
     this.clock = Objects.requireNonNull(clock);
     this.subscriptionConfiguration = Objects.requireNonNull(subscriptionConfiguration);
     this.oneTimeDonationConfiguration = Objects.requireNonNull(oneTimeDonationConfiguration);
-    this.stripeManager = Objects.requireNonNull(stripeManager);
-    this.braintreeManager = Objects.requireNonNull(braintreeManager);
-    this.googlePlayBillingManager = Objects.requireNonNull(googlePlayBillingManager);
+    this.stripeManager = (stripeManager);
+    this.braintreeManager = (braintreeManager);
+    this.googlePlayBillingManager = (googlePlayBillingManager);
     this.appleAppStoreManager = appleAppStoreManager;
     this.badgeTranslator = Objects.requireNonNull(badgeTranslator);
     this.bankMandateTranslator = Objects.requireNonNull(bankMandateTranslator);

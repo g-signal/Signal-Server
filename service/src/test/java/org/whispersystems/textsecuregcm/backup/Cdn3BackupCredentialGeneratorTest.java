@@ -19,6 +19,7 @@ public class Cdn3BackupCredentialGeneratorTest {
   @Test
   public void uploadGenerator() {
     Cdn3BackupCredentialGenerator generator = new Cdn3BackupCredentialGenerator(new TusConfiguration(
+        false,
         new SecretBytes(TestRandomUtil.nextBytes(32)),
         "https://example.org/upload"));
 
@@ -33,6 +34,7 @@ public class Cdn3BackupCredentialGeneratorTest {
   @Test
   public void readCredential() {
     Cdn3BackupCredentialGenerator generator = new Cdn3BackupCredentialGenerator(new TusConfiguration(
+        false,
         new SecretBytes(TestRandomUtil.nextBytes(32)),
         "https://example.org/upload"));
 

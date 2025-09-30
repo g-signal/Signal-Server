@@ -251,11 +251,7 @@ import org.whispersystems.textsecuregcm.storage.VerificationSessions;
 import org.whispersystems.textsecuregcm.storage.devicecheck.AppleDeviceCheckManager;
 import org.whispersystems.textsecuregcm.storage.devicecheck.AppleDeviceCheckTrustAnchor;
 import org.whispersystems.textsecuregcm.storage.devicecheck.AppleDeviceChecks;
-import org.whispersystems.textsecuregcm.subscriptions.AppleAppStoreManager;
-import org.whispersystems.textsecuregcm.subscriptions.BankMandateTranslator;
-import org.whispersystems.textsecuregcm.subscriptions.BraintreeManager;
-import org.whispersystems.textsecuregcm.subscriptions.GooglePlayBillingManager;
-import org.whispersystems.textsecuregcm.subscriptions.StripeManager;
+import org.whispersystems.textsecuregcm.subscriptions.*;
 import org.whispersystems.textsecuregcm.util.BufferingInterceptor;
 import org.whispersystems.textsecuregcm.util.ManagedAwsCrt;
 import org.whispersystems.textsecuregcm.util.SystemMapper;
@@ -721,28 +717,48 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         virtualThreadEventLoggerExecutor,
         config.getVirtualThreadConfiguration().pinEventThreshold());
 
-    StripeManager stripeManager = new StripeManager(config.getStripe().apiKey().value(), subscriptionProcessorExecutor,
-        config.getStripe().idempotencyKeyGenerator().value(), config.getStripe().boostDescription(), config.getStripe().supportedCurrenciesByPaymentMethod());
-    BraintreeManager braintreeManager = new BraintreeManager(config.getBraintree().merchantId(),
-        config.getBraintree().publicKey(), config.getBraintree().privateKey().value(),
-        config.getBraintree().environment(),
-        config.getBraintree().supportedCurrenciesByPaymentMethod(), config.getBraintree().merchantAccounts(),
-        config.getBraintree().graphqlUrl(), currencyManager, config.getBraintree().pubSubPublisher().build(),
-        config.getBraintree().circuitBreaker(), subscriptionProcessorExecutor,
-        subscriptionProcessorRetryExecutor);
-    GooglePlayBillingManager googlePlayBillingManager = new GooglePlayBillingManager(
-        new ByteArrayInputStream(config.getGooglePlayBilling().credentialsJson().value().getBytes(StandardCharsets.UTF_8)),
-        config.getGooglePlayBilling().packageName(),
-        config.getGooglePlayBilling().applicationName(),
-        config.getGooglePlayBilling().productIdToLevel(),
-        googlePlayBillingExecutor);
-    AppleAppStoreManager appleAppStoreManager = new AppleAppStoreManager(
-        config.getAppleAppStore().env(), config.getAppleAppStore().bundleId(), config.getAppleAppStore().appAppleId(),
-        config.getAppleAppStore().issuerId(), config.getAppleAppStore().keyId(),
-        config.getAppleAppStore().encodedKey().value(), config.getAppleAppStore().subscriptionGroupId(),
-        config.getAppleAppStore().productIdToLevel(),
-        config.getAppleAppStore().appleRootCerts(),
-        config.getAppleAppStore().retry(), appleAppStoreExecutor, appleAppStoreRetryExecutor);
+    List<SubscriptionPaymentProcessor> paymentProcessorList = new ArrayList<>();
+    StripeManager stripeManager = null;
+    if(config.getStripe().enabled()){
+      stripeManager = new StripeManager(config.getStripe().apiKey().value(), subscriptionProcessorExecutor,
+              config.getStripe().idempotencyKeyGenerator().value(), config.getStripe().boostDescription(), config.getStripe().supportedCurrenciesByPaymentMethod());
+      paymentProcessorList.add(stripeManager);
+    }
+
+    BraintreeManager braintreeManager = null;
+    if(config.getBraintree().enabled()){
+      braintreeManager = new BraintreeManager(config.getBraintree().merchantId(),
+              config.getBraintree().publicKey(), config.getBraintree().privateKey().value(),
+              config.getBraintree().environment(),
+              config.getBraintree().supportedCurrenciesByPaymentMethod(), config.getBraintree().merchantAccounts(),
+              config.getBraintree().graphqlUrl(), currencyManager, config.getBraintree().pubSubPublisher().build(),
+              config.getBraintree().circuitBreaker(), subscriptionProcessorExecutor,
+              subscriptionProcessorRetryExecutor);
+      paymentProcessorList.add(braintreeManager);
+    }
+    GooglePlayBillingManager googlePlayBillingManager = null;
+    if(config.getGooglePlayBilling().enabled()){
+      googlePlayBillingManager = new GooglePlayBillingManager(
+              new ByteArrayInputStream(config.getGooglePlayBilling().credentialsJson().value().getBytes(StandardCharsets.UTF_8)),
+              config.getGooglePlayBilling().packageName(),
+              config.getGooglePlayBilling().applicationName(),
+              config.getGooglePlayBilling().productIdToLevel(),
+              googlePlayBillingExecutor);
+      paymentProcessorList.add(googlePlayBillingManager);
+
+    }
+    AppleAppStoreManager appleAppStoreManager = null;
+    if(config.getAppleAppStore().enabled()){
+      appleAppStoreManager = new AppleAppStoreManager(
+              config.getAppleAppStore().env(), config.getAppleAppStore().bundleId(), config.getAppleAppStore().appAppleId(),
+              config.getAppleAppStore().issuerId(), config.getAppleAppStore().keyId(),
+              config.getAppleAppStore().encodedKey().value(), config.getAppleAppStore().subscriptionGroupId(),
+              config.getAppleAppStore().productIdToLevel(),
+              config.getAppleAppStore().appleRootCerts(),
+              config.getAppleAppStore().retry(), appleAppStoreExecutor, appleAppStoreRetryExecutor);
+      paymentProcessorList.add(appleAppStoreManager);
+
+    }
 
     environment.lifecycle().manage(apnSender);
     environment.lifecycle().manage(pushNotificationScheduler);
@@ -776,18 +792,29 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     ServerZkAuthOperations zkAuthOperations = new ServerZkAuthOperations(zkSecretParams);
     ServerZkReceiptOperations zkReceiptOperations = new ServerZkReceiptOperations(zkSecretParams);
 
-    TusAttachmentGenerator tusAttachmentGenerator = new TusAttachmentGenerator(config.getTus());
-    Cdn3BackupCredentialGenerator cdn3BackupCredentialGenerator = new Cdn3BackupCredentialGenerator(config.getTus());
+    TusAttachmentGenerator tusAttachmentGenerator = null;
+    Cdn3BackupCredentialGenerator cdn3BackupCredentialGenerator = null;
+    if(config.getTus().enabled()){
+      tusAttachmentGenerator = new TusAttachmentGenerator(config.getTus());
+      cdn3BackupCredentialGenerator = new Cdn3BackupCredentialGenerator(config.getTus());
+    }
+
+    Cdn3RemoteStorageManager cdn3RemoteStorageManager = null;
+    if(config.getCdn3StorageManagerConfiguration().enabled()){
+      cdn3RemoteStorageManager = new Cdn3RemoteStorageManager(
+              remoteStorageHttpExecutor,
+              remoteStorageRetryExecutor,
+              config.getCdn3StorageManagerConfiguration());
+    }
+
     BackupAuthManager backupAuthManager = new BackupAuthManager(experimentEnrollmentManager, rateLimiters,
         accountsManager, zkReceiptOperations, redeemedReceiptsManager, backupsGenericZkSecretParams, clock);
     BackupsDb backupsDb = new BackupsDb(
         dynamoDbAsyncClient,
         config.getDynamoDbTables().getBackups().getTableName(),
         clock);
-    final Cdn3RemoteStorageManager cdn3RemoteStorageManager = new Cdn3RemoteStorageManager(
-        remoteStorageHttpExecutor,
-        remoteStorageRetryExecutor,
-        config.getCdn3StorageManagerConfiguration());
+
+
     BackupManager backupManager = new BackupManager(
         backupsDb,
         backupsGenericZkSecretParams,
@@ -1124,7 +1151,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     );
     if (config.getSubscription() != null && config.getOneTimeDonations() != null) {
       SubscriptionManager subscriptionManager = new SubscriptionManager(subscriptions,
-          List.of(stripeManager, braintreeManager, googlePlayBillingManager, appleAppStoreManager),
+              paymentProcessorList,
           zkReceiptOperations, issuedReceiptsManager);
       commonControllers.add(new SubscriptionController(clock, config.getSubscription(), config.getOneTimeDonations(),
           subscriptionManager, stripeManager, braintreeManager, googlePlayBillingManager, appleAppStoreManager,

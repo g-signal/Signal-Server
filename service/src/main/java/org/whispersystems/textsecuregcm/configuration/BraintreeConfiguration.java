@@ -24,7 +24,8 @@ import org.whispersystems.textsecuregcm.subscriptions.PaymentMethod;
  * @param merchantAccounts    merchant account within the merchant for processing individual currencies
  * @param circuitBreaker      configuration for the circuit breaker used by the GraphQL HTTP client
  */
-public record BraintreeConfiguration(@NotBlank String merchantId,
+public record BraintreeConfiguration(@NotNull Boolean enabled,
+                                     @NotBlank String merchantId,
                                      @NotBlank String publicKey,
                                      @NotNull SecretString privateKey,
                                      @NotBlank String environment,

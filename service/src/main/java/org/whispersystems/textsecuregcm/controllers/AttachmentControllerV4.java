@@ -16,6 +16,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.whispersystems.textsecuregcm.attachments.AttachmentGenerator;
@@ -54,10 +55,11 @@ public class AttachmentControllerV4 {
     this.rateLimiter = rateLimiters.getAttachmentLimiter();
     this.experimentEnrollmentManager = experimentEnrollmentManager;
     this.secureRandom = new SecureRandom();
-    this.attachmentGenerators = Map.of(
-        2, gcsAttachmentGenerator,
-        3, tusAttachmentGenerator
-    );
+    this.attachmentGenerators = new HashMap<>();
+    this.attachmentGenerators.put(2, gcsAttachmentGenerator);
+    if(tusAttachmentGenerator!=null){
+      this.attachmentGenerators.put(3, tusAttachmentGenerator);
+    }
   }
 
   @GET
@@ -81,7 +83,8 @@ public class AttachmentControllerV4 {
       throws RateLimitExceededException {
     rateLimiter.validate(auth.accountIdentifier());
     final String key = generateAttachmentKey();
-    final boolean useCdn3 = this.experimentEnrollmentManager.isEnrolled(auth.accountIdentifier(), CDN3_EXPERIMENT_NAME);
+    final boolean useCdn3 = this.experimentEnrollmentManager.isEnrolled(auth.accountIdentifier(), CDN3_EXPERIMENT_NAME)
+            && this.attachmentGenerators.get(3)!=null;
     int cdn = useCdn3 ? 3 : 2;
     final AttachmentGenerator.Descriptor descriptor = this.attachmentGenerators.get(cdn).generateAttachment(key);
     return new AttachmentDescriptorV3(cdn, key, descriptor.headers(), descriptor.signedUploadLocation());

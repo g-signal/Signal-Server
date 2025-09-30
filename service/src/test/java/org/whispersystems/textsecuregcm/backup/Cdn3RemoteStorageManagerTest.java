@@ -53,6 +53,7 @@ public class Cdn3RemoteStorageManagerTest {
         Executors.newCachedThreadPool(),
         Executors.newSingleThreadScheduledExecutor(),
         new Cdn3StorageManagerConfiguration(
+            false,
             wireMock.url("storage-manager/"),
             "clientId",
             new SecretString("clientSecret"),

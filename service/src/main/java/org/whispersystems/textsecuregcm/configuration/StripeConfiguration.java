@@ -15,7 +15,8 @@ import org.whispersystems.textsecuregcm.configuration.secrets.SecretBytes;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretString;
 import org.whispersystems.textsecuregcm.subscriptions.PaymentMethod;
 
-public record StripeConfiguration(@NotNull SecretString apiKey,
+public record StripeConfiguration(@NotNull Boolean enabled,
+                                  @NotNull SecretString apiKey,
                                   @NotNull SecretBytes idempotencyKeyGenerator,
                                   @NotBlank String boostDescription,
                                   @Valid @NotEmpty Map<PaymentMethod, Set<@NotBlank String>> supportedCurrenciesByPaymentMethod) {

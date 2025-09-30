@@ -24,10 +24,9 @@ public record RegistrationServiceConfiguration(@NotBlank String host,
   public RegistrationServiceClient build(final Environment environment, final Executor callbackExecutor,
       final ScheduledExecutorService identityRefreshExecutor) {
     try {
-      final IdentityTokenCallCredentials callCredentials = IdentityTokenCallCredentials.fromCredentialConfig(
-          credentialConfigurationJson, identityTokenAudience, identityRefreshExecutor);
+      final IdentityTokenCallCredentials callCredentials = null;
 
-      environment.lifecycle().manage(callCredentials);
+      //environment.lifecycle().manage(callCredentials);
 
       return new RegistrationServiceClient(host, port, callCredentials, registrationCaCertificate, collationKeySalt.value(),
           identityRefreshExecutor);

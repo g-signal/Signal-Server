@@ -28,6 +28,7 @@ import org.whispersystems.textsecuregcm.configuration.secrets.SecretString;
  *                            https://www.apple.com/certificateauthority/
  */
 public record AppleAppStoreConfiguration(
+        @NotNull Boolean enabled,
     @NotNull Environment env,
     @NotBlank String bundleId,
     @NotNull Long appAppleId,

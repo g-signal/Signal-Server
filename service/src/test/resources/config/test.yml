@@ -1,3 +1,13 @@
+# HTTP-only server configuration for testing
+server:
+  applicationConnectors:
+    - type: http
+      port: 8080
+      useForwardedHeaders: true
+  adminConnectors:
+    - type: http
+      port: 8081
+
 logging:
   level: INFO
   appenders:

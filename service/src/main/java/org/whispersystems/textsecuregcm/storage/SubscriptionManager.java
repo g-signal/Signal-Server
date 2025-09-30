@@ -54,8 +54,12 @@ public class SubscriptionManager {
       @Nonnull ServerZkReceiptOperations zkReceiptOperations,
       @Nonnull IssuedReceiptsManager issuedReceiptsManager) {
     this.subscriptions = Objects.requireNonNull(subscriptions);
-    this.processors = new EnumMap<>(processors.stream()
-        .collect(Collectors.toMap(SubscriptionPaymentProcessor::getProvider, Function.identity())));
+    if(processors!=null && !processors.isEmpty()) {
+        this.processors = new EnumMap<>(processors.stream()
+                .collect(Collectors.toMap(SubscriptionPaymentProcessor::getProvider, Function.identity())));
+    }else {
+        this.processors = new EnumMap<>(PaymentProvider.class);
+    }
     this.zkReceiptOperations = Objects.requireNonNull(zkReceiptOperations);
     this.issuedReceiptsManager = Objects.requireNonNull(issuedReceiptsManager);
   }

@@ -97,15 +97,15 @@ public class OneTimeDonationController {
   public OneTimeDonationController(
       @Nonnull Clock clock,
       @Nonnull OneTimeDonationConfiguration oneTimeDonationConfiguration,
-      @Nonnull StripeManager stripeManager,
-      @Nonnull BraintreeManager braintreeManager,
+      StripeManager stripeManager,
+      BraintreeManager braintreeManager,
       @Nonnull ServerZkReceiptOperations zkReceiptOperations,
       @Nonnull IssuedReceiptsManager issuedReceiptsManager,
       @Nonnull OneTimeDonationsManager oneTimeDonationsManager) {
     this.clock = Objects.requireNonNull(clock);
     this.oneTimeDonationConfiguration = Objects.requireNonNull(oneTimeDonationConfiguration);
-    this.stripeManager = Objects.requireNonNull(stripeManager);
-    this.braintreeManager = Objects.requireNonNull(braintreeManager);
+    this.stripeManager = (stripeManager);
+    this.braintreeManager = (braintreeManager);
     this.zkReceiptOperations = Objects.requireNonNull(zkReceiptOperations);
     this.issuedReceiptsManager = Objects.requireNonNull(issuedReceiptsManager);
     this.oneTimeDonationsManager = Objects.requireNonNull(oneTimeDonationsManager);

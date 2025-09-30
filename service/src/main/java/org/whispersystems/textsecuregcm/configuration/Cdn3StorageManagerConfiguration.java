@@ -20,6 +20,8 @@ import org.whispersystems.textsecuregcm.configuration.secrets.SecretString;
  * @param retry          A retry configuration for the storage-manager http client
  */
 public record Cdn3StorageManagerConfiguration(
+        @NotNull Boolean enabled,
+
     @NotNull String baseUri,
     @NotNull String clientId,
     @NotNull SecretString clientSecret,
