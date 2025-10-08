@@ -5,6 +5,7 @@
 
 package org.whispersystems.textsecuregcm.configuration;
 
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.whispersystems.textsecuregcm.currency.CoinGeckoClient;
 import org.whispersystems.textsecuregcm.currency.FixerClient;
@@ -14,6 +15,7 @@ import java.net.http.HttpClient;
 import java.util.Collections;
 import java.util.Map;
 
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", defaultImpl = StubPaymentsServiceClientsFactory2.class)
 @JsonTypeName("stub2")
 public class StubPaymentsServiceClientsFactory2 implements PaymentsServiceClientsFactory {
 
