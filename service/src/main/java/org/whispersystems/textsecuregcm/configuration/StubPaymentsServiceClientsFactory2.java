@@ -55,7 +55,7 @@ public class StubPaymentsServiceClientsFactory2 implements PaymentsServiceClient
 
     @Override
     public BigDecimal getSpotPrice(final String currency, final String base) {
-      return BigDecimal.ZERO;
+      return BigDecimal.ONE;
     }
   }
 }
