@@ -66,11 +66,15 @@ import org.whispersystems.textsecuregcm.util.ExceptionUtils;
 import org.whispersystems.textsecuregcm.util.HeaderUtils;
 import org.whispersystems.textsecuregcm.util.UsernameHashZkProofVerifier;
 import org.whispersystems.textsecuregcm.util.Util;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 @Path("/v1/accounts")
 @io.swagger.v3.oas.annotations.tags.Tag(name = "Account")
 public class AccountController {
+  private static final Logger logger = LoggerFactory.getLogger(AccountController.class);
+
   public static final int MAXIMUM_USERNAME_HASHES_LIST_LENGTH = 20;
   public static final int USERNAME_HASH_LENGTH = 32;
   public static final int MAXIMUM_USERNAME_CIPHERTEXT_LENGTH = 128;
@@ -138,19 +142,42 @@ public class AccountController {
   public void setApnRegistrationId(@Auth AuthenticatedDevice auth,
       @NotNull @Valid ApnRegistrationId registrationId) {
 
-    final Account account = accounts.getByAccountIdentifier(auth.accountIdentifier())
-        .orElseThrow(() -> new WebApplicationException(Status.UNAUTHORIZED));
+    logger.info("APN registration request from account: {}, device: {}, apn ID: {}",
+        auth.accountIdentifier(), auth.deviceId(),
+        registrationId.apnRegistrationId() != null ? registrationId.apnRegistrationId().length() : "null");
 
-    final Device device = account.getDevice(auth.deviceId())
-        .orElseThrow(() -> new WebApplicationException(Status.UNAUTHORIZED));
+    try {
+      final Account account = accounts.getByAccountIdentifier(auth.accountIdentifier())
+          .orElseThrow(() -> {
+            logger.warn("APN registration failed: Account not found for identifier: {}", auth.accountIdentifier());
+            return new WebApplicationException(Status.UNAUTHORIZED);
+          });
 
-    // Unlike FCM tokens, we need current "last updated" timestamps for APNs tokens and so update device records
-    // unconditionally
-    accounts.updateDevice(account, device.getId(), d -> {
-      d.setApnId(registrationId.apnRegistrationId());
-      d.setGcmId(null);
-      d.setFetchesMessages(false);
-    });
+      logger.debug("Account found: {}, checking device: {}", account.getNumber(), auth.deviceId());
+
+      final Device device = account.getDevice(auth.deviceId())
+          .orElseThrow(() -> {
+            logger.warn("APN registration failed: Device {} not found for account: {}", auth.deviceId(), auth.accountIdentifier());
+            return new WebApplicationException(Status.UNAUTHORIZED);
+          });
+
+      logger.debug("Device found: {}, current APN ID: {}", device.getId(), device.getApnId());
+
+      // Unlike FCM tokens, we need current "last updated" timestamps for APNs tokens and so update device records
+      // unconditionally
+      accounts.updateDevice(account, device.getId(), d -> {
+        d.setApnId(registrationId.apnRegistrationId());
+        d.setGcmId(null);
+        d.setFetchesMessages(false);
+      });
+
+      logger.info("APN registration successful for account: {}, device: {}", auth.accountIdentifier(), auth.deviceId());
+
+    } catch (WebApplicationException e) {
+      logger.error("APN registration failed with status: {} for account: {}, device: {}",
+          e.getResponse().getStatus(), auth.accountIdentifier(), auth.deviceId());
+      throw e;
+    }
   }
 
   @DELETE

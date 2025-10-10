@@ -26,8 +26,12 @@ import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.Device;
 import org.whispersystems.textsecuregcm.util.Pair;
 import org.whispersystems.textsecuregcm.util.Util;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class AccountAuthenticator implements Authenticator<BasicCredentials, AuthenticatedDevice> {
+
+  private static final Logger logger = LoggerFactory.getLogger(AccountAuthenticator.class);
 
   private static final String LEGACY_NAME_PREFIX = "org.whispersystems.textsecuregcm.auth.BaseAccountAuthenticator";
 
@@ -78,37 +82,54 @@ public class AccountAuthenticator implements Authenticator<BasicCredentials, Aut
   public Optional<AuthenticatedDevice> authenticate(BasicCredentials basicCredentials) {
     boolean succeeded = false;
     String failureReason = null;
+    UUID accountUuid = null;
+    byte deviceId = -1;
 
     try {
-      final UUID accountUuid;
-      final byte deviceId;
+      logger.debug("Authentication attempt for username: {}", basicCredentials.getUsername());
+
       {
         final Pair<String, Byte> identifierAndDeviceId = getIdentifierAndDeviceId(basicCredentials.getUsername());
 
         accountUuid = UUID.fromString(identifierAndDeviceId.first());
         deviceId = identifierAndDeviceId.second();
+
+        logger.debug("Parsed accountUuid: {}, deviceId: {}", accountUuid, deviceId);
       }
 
       Optional<Account> account = accountsManager.getByAccountIdentifier(accountUuid);
 
       if (account.isEmpty()) {
         failureReason = "noSuchAccount";
+        logger.warn("Authentication failed: Account not found for UUID: {}", accountUuid);
         return Optional.empty();
       }
+
+      logger.debug("Account found for UUID: {}, number: {}", accountUuid, account.get().getNumber());
 
       Optional<Device> device = account.get().getDevice(deviceId);
 
       if (device.isEmpty()) {
         failureReason = "noSuchDevice";
+        logger.warn("Authentication failed: Device {} not found for account: {}", deviceId, accountUuid);
         return Optional.empty();
       }
 
+      logger.debug("Device found: id={}, lastSeen={}", device.get().getId(), device.get().getLastSeen());
+
       SaltedTokenHash deviceSaltedTokenHash = device.get().getAuthTokenHash();
+      String providedPassword = basicCredentials.getPassword();
+
+      logger.debug("Token verification: stored hash version={}, provided password length={}",
+          deviceSaltedTokenHash.getVersion(), providedPassword != null ? providedPassword.length() : 0);
+
       if (deviceSaltedTokenHash.verify(basicCredentials.getPassword())) {
         succeeded = true;
+        logger.info("Authentication successful for account: {}, device: {}", accountUuid, deviceId);
         Account authenticatedAccount = updateLastSeen(account.get(), device.get());
         if (deviceSaltedTokenHash.getVersion() != SaltedTokenHash.CURRENT_VERSION) {
           OLD_TOKEN_VERSION_COUNTER.increment();
+          logger.debug("Updating token version from {} to {}", deviceSaltedTokenHash.getVersion(), SaltedTokenHash.CURRENT_VERSION);
           authenticatedAccount = accountsManager.updateDeviceAuthentication(
               authenticatedAccount,
               device.get(),
@@ -119,10 +140,12 @@ public class AccountAuthenticator implements Authenticator<BasicCredentials, Aut
             Instant.ofEpochMilli(authenticatedAccount.getPrimaryDevice().getLastSeen())));
       } else {
         failureReason = "incorrectPassword";
+        logger.warn("Authentication failed: Password verification failed for account: {}, device: {}", accountUuid, deviceId);
         return Optional.empty();
       }
     } catch (IllegalArgumentException | InvalidAuthorizationHeaderException iae) {
       failureReason = "invalidHeader";
+      logger.warn("Authentication failed: Invalid header format - {}", iae.getMessage());
       return Optional.empty();
     } finally {
       Tags tags = Tags.of(
@@ -130,6 +153,8 @@ public class AccountAuthenticator implements Authenticator<BasicCredentials, Aut
 
       if (StringUtils.isNotBlank(failureReason)) {
         tags = tags.and(AUTHENTICATION_FAILURE_REASON_TAG_NAME, failureReason);
+        logger.debug("Authentication result: failed with reason '{}' for account: {}, device: {}",
+            failureReason, accountUuid, deviceId);
       }
 
       Metrics.counter(AUTHENTICATION_COUNTER_NAME, tags).increment();
