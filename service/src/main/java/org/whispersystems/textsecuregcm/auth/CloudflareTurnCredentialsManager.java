@@ -51,11 +51,14 @@ public class CloudflareTurnCredentialsManager {
 
   private record CloudflareTurnResponse(IceServer iceServers) {
 
-    private record IceServer(
+    private  record IceServer(
         String username,
         String credential,
         List<String> urls) {
     }
+  }
+
+  private record CloudflareTurnResponse2(List<CloudflareTurnResponse.IceServer> iceServers) {
   }
 
   public CloudflareTurnCredentialsManager(final String cloudflareTurnApiToken,
@@ -141,8 +144,14 @@ public class CloudflareTurnCredentialsManager {
       throw new IOException("Cloudflare Turn http failure : " + response.statusCode());
     }
 
-    final CloudflareTurnResponse cloudflareTurnResponse = SystemMapper.jsonMapper()
-        .readValue(response.body(), CloudflareTurnResponse.class);
+    CloudflareTurnResponse cloudflareTurnResponse = null;
+    try {
+      cloudflareTurnResponse = SystemMapper.jsonMapper()
+              .readValue(response.body(), CloudflareTurnResponse.class);
+    }catch (Exception e){
+      cloudflareTurnResponse = new CloudflareTurnResponse(SystemMapper.jsonMapper()
+              .readValue(response.body(), CloudflareTurnResponse2.class).iceServers().get(1));
+    }
 
     return new TurnToken(
         cloudflareTurnResponse.iceServers().username(),
