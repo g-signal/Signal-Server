@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
 import io.netty.resolver.dns.DnsNameResolver;
+import io.netty.util.internal.StringUtil;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.net.Inet6Address;
@@ -21,6 +22,8 @@ import java.util.List;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.configuration.CircuitBreakerConfiguration;
@@ -149,8 +152,14 @@ public class CloudflareTurnCredentialsManager {
       cloudflareTurnResponse = SystemMapper.jsonMapper()
               .readValue(response.body(), CloudflareTurnResponse.class);
     }catch (Exception e){
-      cloudflareTurnResponse = new CloudflareTurnResponse(SystemMapper.jsonMapper()
-              .readValue(response.body(), CloudflareTurnResponse2.class).iceServers().get(1));
+      List<CloudflareTurnResponse.IceServer> iceServers = SystemMapper.jsonMapper()
+              .readValue(response.body(), CloudflareTurnResponse2.class).iceServers();
+      for(int i=0; i<iceServers.size(); i++){
+        if(StringUtils.isNotBlank(iceServers.get(i).credential)){
+          cloudflareTurnResponse = new CloudflareTurnResponse(iceServers.get(i));
+          break;
+        }
+      }
     }
 
     return new TurnToken(
