@@ -18,13 +18,18 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import java.io.IOException;
 import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.auth.CloudflareTurnCredentialsManager;
 import org.whispersystems.textsecuregcm.limits.RateLimiters;
+import org.whispersystems.textsecuregcm.util.ExceptionUtil;
 
 @io.swagger.v3.oas.annotations.tags.Tag(name = "Calling")
 @Path("/v2/calling")
 public class CallRoutingControllerV2 {
+  private static final Logger logger = LoggerFactory.getLogger(CallRoutingControllerV2.class);
 
   private final RateLimiters rateLimiters;
   private final CloudflareTurnCredentialsManager cloudflareTurnCredentialsManager;
@@ -63,6 +68,7 @@ public class CallRoutingControllerV2 {
       return new GetCallingRelaysResponse(List.of(cloudflareTurnCredentialsManager.retrieveFromCloudflare()));
     } catch (final Exception e) {
       CLOUDFLARE_TURN_ERROR_COUNTER.increment();
+      logger.error(ExceptionUtil.getExceptionDetail(e));
       throw e;
     }
   }
