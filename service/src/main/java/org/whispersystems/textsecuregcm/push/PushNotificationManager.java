@@ -51,7 +51,7 @@ public class PushNotificationManager {
     final Pair<String, PushNotification.TokenType> tokenAndType = getToken(device);
 
     return sendNotification(new PushNotification(tokenAndType.first(), tokenAndType.second(),
-        PushNotification.NotificationType.NOTIFICATION, null, destination, device, urgent));
+        PushNotification.NotificationType.VOIP_CALL_INCOMING, null, destination, device, urgent));
   }
 
   public CompletableFuture<SendPushNotificationResult> sendRegistrationChallengeNotification(final String deviceToken, final PushNotification.TokenType tokenType, final String challengeToken) {
