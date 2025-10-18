@@ -50,13 +50,8 @@ public class PushNotificationManager {
     final Device device = destination.getDevice(destinationDeviceId).orElseThrow(NotPushRegisteredException::new);
     final Pair<String, PushNotification.TokenType> tokenAndType = getToken(device);
 
-//    return sendNotification(new PushNotification(tokenAndType.first(), tokenAndType.second(),
-//        PushNotification.NotificationType.NOTIFICATION, null, destination, device, urgent));
-
-
-    // TODO
     return sendNotification(new PushNotification(tokenAndType.first(), tokenAndType.second(),
-        PushNotification.NotificationType.VOIP_CALL_INCOMING, null, destination, device, urgent));
+        PushNotification.NotificationType.NOTIFICATION, null, destination, device, urgent));
   }
 
   public CompletableFuture<SendPushNotificationResult> sendRegistrationChallengeNotification(final String deviceToken, final PushNotification.TokenType tokenType, final String challengeToken) {
@@ -107,6 +102,8 @@ public class PushNotificationManager {
 
     if (StringUtils.isNotBlank(device.getGcmId())) {
       tokenAndType = new Pair<>(device.getGcmId(), PushNotification.TokenType.FCM);
+    } else if (StringUtils.isNotBlank(device.getVoipApnId())) {
+      tokenAndType = new Pair<>(device.getVoipApnId(), PushNotification.TokenType.VOIP_APN);
     } else if (StringUtils.isNotBlank(device.getApnId())) {
       tokenAndType = new Pair<>(device.getApnId(), PushNotification.TokenType.APN);
     } else {
