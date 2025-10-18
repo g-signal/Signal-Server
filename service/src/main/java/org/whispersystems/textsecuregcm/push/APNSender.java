@@ -89,7 +89,7 @@ public class APNSender implements Managed, PushNotificationSender {
   {
     this.executor = executor;
     this.bundleId = configuration.bundleId();
-    this.voipBundleId = configuration.bundleId() + ".voip";
+    this.voipBundleId = configuration.bundleId(); // Use same bundle ID for VOIP as main app
 
     // Regular APN client using signing key
     this.apnsClient = new ApnsClientBuilder().setSigningKey(
@@ -121,7 +121,7 @@ public class APNSender implements Managed, PushNotificationSender {
     this.executor = executor;
     this.apnsClient = apnsClient;
     this.bundleId = bundleId;
-    this.voipBundleId = bundleId + ".voip";
+    this.voipBundleId = bundleId; // Use same bundle ID for VOIP as main app
     this.voipApnsClient = null; // For testing, VoIP client not needed
   }
 
@@ -131,7 +131,7 @@ public class APNSender implements Managed, PushNotificationSender {
     this.apnsClient = apnsClient;
     this.voipApnsClient = voipApnsClient;
     this.bundleId = bundleId;
-    this.voipBundleId = bundleId + ".voip";
+    this.voipBundleId = bundleId; // Use same bundle ID for VOIP as main app
   }
 
   @Override
