@@ -64,32 +64,13 @@ public class APNSender implements Managed, PushNotificationSender {
 
   private static final Logger logger = LoggerFactory.getLogger(APNSender.class);
 
-  /**
-   * Creates default VoIP call data when none is provided.
-   * This ensures the iOS client receives valid call information for PushKit compliance.
-   */
-  private static String createDefaultVoipCallData() {
-    final String defaultCallData = """
-        {
-          "callId": "%s",
-          "callerId": "unknown",
-          "callType": "audio",
-          "timestamp": %d
-        }
-        """.formatted(
-            java.util.UUID.randomUUID().toString(),
-            System.currentTimeMillis()
-        );
-
-    return defaultCallData.trim();
-  }
 
   public APNSender(ExecutorService executor, ApnConfiguration configuration)
       throws IOException, NoSuchAlgorithmException, InvalidKeyException, KeyStoreException, CertificateException, UnrecoverableKeyException
   {
     this.executor = executor;
     this.bundleId = configuration.bundleId();
-    this.voipBundleId = configuration.bundleId(); // Use same bundle ID for VOIP as main app
+    this.voipBundleId = configuration.bundleId() + ".voip";
 
     // Regular APN client using signing key
     this.apnsClient = new ApnsClientBuilder().setSigningKey(
@@ -156,13 +137,13 @@ public class APNSender implements Managed, PushNotificationSender {
           .build();
 
       case VOIP_CALL_INCOMING -> {
-        // Ensure voipCall payload is never null - provide default call information
-        final String voipCallData = (notification.data() != null && !notification.data().trim().isEmpty())
+        // Use CallMessageRelayPayload format expected by iOS Signal app
+        final String callMessageRelayId = (notification.data() != null && !notification.data().trim().isEmpty())
             ? notification.data()
-            : createDefaultVoipCallData();
+            : java.util.UUID.randomUUID().toString();
 
         yield new SimpleApnsPayloadBuilder()
-            .addCustomProperty("voipCall", voipCallData)
+            .addCustomProperty("CallMessageRelayPayload", callMessageRelayId)
             .build();
       }
     };

@@ -104,6 +104,7 @@ import org.whispersystems.textsecuregcm.configuration.secrets.SecretStore;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretsModule;
 import org.whispersystems.textsecuregcm.controllers.AccountController;
 import org.whispersystems.textsecuregcm.controllers.AccountControllerV2;
+import org.whispersystems.textsecuregcm.controllers.VoipController;
 import org.whispersystems.textsecuregcm.controllers.ArchiveController;
 import org.whispersystems.textsecuregcm.controllers.AttachmentControllerV4;
 import org.whispersystems.textsecuregcm.controllers.CallLinkController;
@@ -1147,7 +1148,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         new VerificationController(registrationServiceClient, new VerificationSessionManager(verificationSessions),
             pushNotificationManager, registrationCaptchaManager, registrationRecoveryPasswordsManager,
             phoneNumberIdentifiers, rateLimiters, accountsManager, registrationFraudChecker,
-            dynamicConfigurationManager, clock)
+            dynamicConfigurationManager, clock),
+        new VoipController(accountsManager, pushNotificationManager)
     );
     if (config.getSubscription() != null && config.getOneTimeDonations() != null) {
       SubscriptionManager subscriptionManager = new SubscriptionManager(subscriptions,
