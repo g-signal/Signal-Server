@@ -64,6 +64,26 @@ public class APNSender implements Managed, PushNotificationSender {
 
   private static final Logger logger = LoggerFactory.getLogger(APNSender.class);
 
+  /**
+   * Creates default VoIP call data when none is provided.
+   * This ensures the iOS client receives valid call information for PushKit compliance.
+   */
+  private static String createDefaultVoipCallData() {
+    final String defaultCallData = """
+        {
+          "callId": "%s",
+          "callerId": "unknown",
+          "callType": "audio",
+          "timestamp": %d
+        }
+        """.formatted(
+            java.util.UUID.randomUUID().toString(),
+            System.currentTimeMillis()
+        );
+
+    return defaultCallData.trim();
+  }
+
   public APNSender(ExecutorService executor, ApnConfiguration configuration)
       throws IOException, NoSuchAlgorithmException, InvalidKeyException, KeyStoreException, CertificateException, UnrecoverableKeyException
   {
@@ -135,9 +155,16 @@ public class APNSender implements Managed, PushNotificationSender {
           .addCustomProperty("rateLimitChallenge", notification.data())
           .build();
 
-      case VOIP_CALL_INCOMING -> new SimpleApnsPayloadBuilder()
-          .addCustomProperty("voipCall", notification.data())
-          .build();
+      case VOIP_CALL_INCOMING -> {
+        // Ensure voipCall payload is never null - provide default call information
+        final String voipCallData = (notification.data() != null && !notification.data().trim().isEmpty())
+            ? notification.data()
+            : createDefaultVoipCallData();
+
+        yield new SimpleApnsPayloadBuilder()
+            .addCustomProperty("voipCall", voipCallData)
+            .build();
+      }
     };
 
     final PushType pushType = switch (notification.notificationType()) {
@@ -178,8 +205,15 @@ public class APNSender implements Managed, PushNotificationSender {
     final String deviceTokenPrefix = notification.deviceToken().length() > 8 ?
         notification.deviceToken().substring(0, 8) + "..." : notification.deviceToken();
 
-    logger.info("Sending {} notification via {} to device token {}..., bundle: {}, payload: {}, pushType: {}",
-        notificationTypeStr, tokenTypeStr, deviceTokenPrefix, targetBundleId, payload, pushType);
+    // For VOIP notifications, log whether we used default data
+    if (notification.notificationType() == PushNotification.NotificationType.VOIP_CALL_INCOMING) {
+      final boolean usingDefaultData = (notification.data() == null || notification.data().trim().isEmpty());
+      logger.info("Sending {} notification via {} to device token {}..., bundle: {}, payload: {}, pushType: {}, usingDefaultData: {}",
+          notificationTypeStr, tokenTypeStr, deviceTokenPrefix, targetBundleId, payload, pushType, usingDefaultData);
+    } else {
+      logger.info("Sending {} notification via {} to device token {}..., bundle: {}, payload: {}, pushType: {}",
+          notificationTypeStr, tokenTypeStr, deviceTokenPrefix, targetBundleId, payload, pushType);
+    }
 
     return targetClient.sendNotification(new SimpleApnsPushNotification(notification.deviceToken(),
         targetBundleId,
