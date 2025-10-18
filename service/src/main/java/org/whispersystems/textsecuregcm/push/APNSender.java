@@ -178,8 +178,8 @@ public class APNSender implements Managed, PushNotificationSender {
     final String deviceTokenPrefix = notification.deviceToken().length() > 8 ?
         notification.deviceToken().substring(0, 8) + "..." : notification.deviceToken();
 
-    logger.info("Sending {} notification via {} to device token {}..., bundle: {}, payload: {}",
-        notificationTypeStr, tokenTypeStr, deviceTokenPrefix, targetBundleId, payload);
+    logger.info("Sending {} notification via {} to device token {}..., bundle: {}, payload: {}, pushType: {}",
+        notificationTypeStr, tokenTypeStr, deviceTokenPrefix, targetBundleId, payload, pushType);
 
     return targetClient.sendNotification(new SimpleApnsPushNotification(notification.deviceToken(),
         targetBundleId,

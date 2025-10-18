@@ -102,10 +102,13 @@ public class PushNotificationManager {
 
     if (StringUtils.isNotBlank(device.getGcmId())) {
       tokenAndType = new Pair<>(device.getGcmId(), PushNotification.TokenType.FCM);
+      logger.info("[voip] tokenType:{}, token:{}", tokenAndType.first(), tokenAndType.second());
     } else if (StringUtils.isNotBlank(device.getVoipApnId())) {
       tokenAndType = new Pair<>(device.getVoipApnId(), PushNotification.TokenType.VOIP_APN);
+      logger.info("[voip] tokenType:{}, token:{}", tokenAndType.first(), tokenAndType.second());
     } else if (StringUtils.isNotBlank(device.getApnId())) {
       tokenAndType = new Pair<>(device.getApnId(), PushNotification.TokenType.APN);
+      logger.info("[voip] tokenType:{}, token:{}", tokenAndType.first(), tokenAndType.second());
     } else {
       throw new NotPushRegisteredException();
     }
