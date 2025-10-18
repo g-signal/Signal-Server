@@ -50,8 +50,13 @@ public class PushNotificationManager {
     final Device device = destination.getDevice(destinationDeviceId).orElseThrow(NotPushRegisteredException::new);
     final Pair<String, PushNotification.TokenType> tokenAndType = getToken(device);
 
+//    return sendNotification(new PushNotification(tokenAndType.first(), tokenAndType.second(),
+//        PushNotification.NotificationType.NOTIFICATION, null, destination, device, urgent));
+
+
+    // TODO
     return sendNotification(new PushNotification(tokenAndType.first(), tokenAndType.second(),
-        PushNotification.NotificationType.NOTIFICATION, null, destination, device, urgent));
+        PushNotification.NotificationType.VOIP_CALL_INCOMING, null, destination, device, urgent));
   }
 
   public CompletableFuture<SendPushNotificationResult> sendRegistrationChallengeNotification(final String deviceToken, final PushNotification.TokenType tokenType, final String challengeToken) {
@@ -77,6 +82,18 @@ public class PushNotificationManager {
     return sendNotification(new PushNotification(tokenAndType.first(), tokenAndType.second(),
         PushNotification.NotificationType.ATTEMPT_LOGIN_NOTIFICATION_HIGH_PRIORITY,
         context, destination, device, true))
+        .thenApply(maybeResponse -> maybeResponse.orElseThrow(() -> new AssertionError("Responses must be present for urgent notifications")));
+  }
+
+  public CompletableFuture<SendPushNotificationResult> sendVoipNotification(final Account destination, final byte destinationDeviceId, final String callData) throws NotPushRegisteredException {
+    final Device device = destination.getDevice(destinationDeviceId).orElseThrow(NotPushRegisteredException::new);
+
+    if (StringUtils.isBlank(device.getVoipApnId())) {
+      throw new NotPushRegisteredException();
+    }
+
+    return sendNotification(new PushNotification(device.getVoipApnId(), PushNotification.TokenType.VOIP_APN,
+        PushNotification.NotificationType.VOIP_CALL_INCOMING, callData, destination, device, true))
         .thenApply(maybeResponse -> maybeResponse.orElseThrow(() -> new AssertionError("Responses must be present for urgent notifications")));
   }
 
@@ -113,7 +130,7 @@ public class PushNotificationManager {
 
     final PushNotificationSender sender = switch (pushNotification.tokenType()) {
       case FCM -> fcmSender;
-      case APN -> apnSender;
+      case APN, VOIP_APN -> apnSender;
     };
 
     return sender.sendNotification(pushNotification).whenComplete((result, throwable) -> {
@@ -201,6 +218,7 @@ public class PushNotificationManager {
                 switch (tokenType) {
                   case FCM -> d.setGcmId(null);
                   case APN -> d.setApnId(null);
+                  case VOIP_APN -> d.setVoipApnId(null);
                 }
               }
             })));
@@ -210,6 +228,7 @@ public class PushNotificationManager {
     return switch (tokenType) {
       case FCM -> device.getGcmId();
       case APN -> device.getApnId();
+      case VOIP_APN -> device.getVoipApnId();
     };
   }
 }

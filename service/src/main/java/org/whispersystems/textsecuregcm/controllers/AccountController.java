@@ -42,6 +42,7 @@ import org.whispersystems.textsecuregcm.entities.AccountAttributes;
 import org.whispersystems.textsecuregcm.entities.AccountIdentifierResponse;
 import org.whispersystems.textsecuregcm.entities.AccountIdentityResponse;
 import org.whispersystems.textsecuregcm.entities.ApnRegistrationId;
+import org.whispersystems.textsecuregcm.entities.VoipApnRegistrationId;
 import org.whispersystems.textsecuregcm.entities.ConfirmUsernameHashRequest;
 import org.whispersystems.textsecuregcm.entities.DeviceName;
 import org.whispersystems.textsecuregcm.entities.EncryptedUsername;
@@ -197,6 +198,61 @@ public class AccountController {
       } else {
         d.setUserAgent("OWP");
       }
+    });
+  }
+
+  @PUT
+  @Path("/apn/voip/")
+  @Consumes(MediaType.APPLICATION_JSON)
+  @Produces(MediaType.APPLICATION_JSON)
+  public void setVoipApnRegistrationId(@Auth AuthenticatedDevice auth,
+      @NotNull @Valid VoipApnRegistrationId registrationId) {
+
+    logger.info("VoIP APN registration request from account: {}, device: {}, voip apn ID: {}",
+        auth.accountIdentifier(), auth.deviceId(),
+        registrationId.voipApnRegistrationId() != null ? registrationId.voipApnRegistrationId().length() : "null");
+
+    try {
+      final Account account = accounts.getByAccountIdentifier(auth.accountIdentifier())
+          .orElseThrow(() -> {
+            logger.warn("VoIP APN registration failed: Account not found for identifier: {}", auth.accountIdentifier());
+            return new WebApplicationException(Status.UNAUTHORIZED);
+          });
+
+      logger.debug("Account found: {}, checking device: {}", account.getNumber(), auth.deviceId());
+
+      final Device device = account.getDevice(auth.deviceId())
+          .orElseThrow(() -> {
+            logger.warn("VoIP APN registration failed: Device {} not found for account: {}", auth.deviceId(), auth.accountIdentifier());
+            return new WebApplicationException(Status.UNAUTHORIZED);
+          });
+
+      logger.debug("Device found: {}, current VoIP APN ID: {}", device.getId(), device.getVoipApnId());
+
+      accounts.updateDevice(account, device.getId(), d -> {
+        d.setVoipApnId(registrationId.voipApnRegistrationId());
+      });
+
+      logger.info("VoIP APN registration successful for account: {}, device: {}", auth.accountIdentifier(), auth.deviceId());
+
+    } catch (WebApplicationException e) {
+      logger.error("VoIP APN registration failed with status: {} for account: {}, device: {}",
+          e.getResponse().getStatus(), auth.accountIdentifier(), auth.deviceId());
+      throw e;
+    }
+  }
+
+  @DELETE
+  @Path("/apn/voip/")
+  public void deleteVoipApnRegistrationId(@Auth AuthenticatedDevice auth) {
+    final Account account = accounts.getByAccountIdentifier(auth.accountIdentifier())
+        .orElseThrow(() -> new WebApplicationException(Status.UNAUTHORIZED));
+
+    final Device device = account.getDevice(auth.deviceId())
+        .orElseThrow(() -> new WebApplicationException(Status.UNAUTHORIZED));
+
+    accounts.updateDevice(account, device.getId(), d -> {
+      d.setVoipApnId(null);
     });
   }
 

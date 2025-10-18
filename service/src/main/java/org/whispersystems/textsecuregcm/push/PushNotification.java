@@ -21,11 +21,13 @@ public record PushNotification(String deviceToken,
     NOTIFICATION,
     ATTEMPT_LOGIN_NOTIFICATION_HIGH_PRIORITY,
     CHALLENGE,
-    RATE_LIMIT_CHALLENGE
+    RATE_LIMIT_CHALLENGE,
+    VOIP_CALL_INCOMING
   }
 
   public enum TokenType {
     FCM,
-    APN
+    APN,
+    VOIP_APN
   }
 }

@@ -13,7 +13,9 @@ import io.dropwizard.core.setup.Environment;
 import io.lettuce.core.resource.ClientResources;
 import java.io.IOException;
 import java.security.InvalidKeyException;
+import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
 import java.time.Clock;
 import java.util.concurrent.ExecutorService;
@@ -110,7 +112,7 @@ record CommandDependencies(
       final String name,
       final Environment environment,
       final WhisperServerConfiguration configuration)
-      throws IOException, CertificateException, NoSuchAlgorithmException, InvalidKeyException {
+      throws IOException, CertificateException, NoSuchAlgorithmException, InvalidKeyException, UnrecoverableKeyException, KeyStoreException {
     Clock clock = Clock.systemUTC();
 
     environment.getObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);

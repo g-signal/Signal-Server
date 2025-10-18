@@ -284,7 +284,7 @@ public class PushNotificationScheduler implements Managed {
 
     final PushNotificationSender sender = switch (tokenType) {
       case FCM -> fcmSender;
-      case APN -> apnSender;
+      case APN, VOIP_APN -> apnSender;
     };
 
     // It's okay for the "last notification" timestamp to expire after the "cooldown" period has elapsed; a missing
@@ -367,7 +367,7 @@ public class PushNotificationScheduler implements Managed {
 
   private static String getPendingBackgroundNotificationQueueKey(final PushNotification.TokenType tokenType, final int slot) {
     final String prefix = switch (tokenType) {
-      case APN -> PENDING_BACKGROUND_APN_NOTIFICATIONS_KEY_PREFIX;
+      case APN, VOIP_APN -> PENDING_BACKGROUND_APN_NOTIFICATIONS_KEY_PREFIX;
       case FCM -> PENDING_BACKGROUND_FCM_NOTIFICATIONS_KEY_PREFIX;
     };
     return prefix + "::{" + RedisClusterUtil.getMinimalHashTag(slot) + "}";
@@ -426,6 +426,7 @@ public class PushNotificationScheduler implements Managed {
     return switch (tokenType) {
       case FCM -> device.getGcmId();
       case APN -> device.getApnId();
+      case VOIP_APN -> device.getVoipApnId();
     };
   }
 }

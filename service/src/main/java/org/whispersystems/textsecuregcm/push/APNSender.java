@@ -20,19 +20,29 @@ import io.micrometer.core.instrument.Timer;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.security.InvalidKeyException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.UnrecoverableKeyException;
+import java.security.cert.CertificateException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.configuration.ApnConfiguration;
+import org.whispersystems.textsecuregcm.configuration.VoipApnConfiguration;
 
 public class APNSender implements Managed, PushNotificationSender {
 
   private final ExecutorService executor;
   private final String bundleId;
+  private final String voipBundleId;
   private final ApnsClient apnsClient;
+  private final ApnsClient voipApnsClient;
 
   @VisibleForTesting
   static final String APN_NSE_NOTIFICATION_PAYLOAD = new SimpleApnsPayloadBuilder()
@@ -52,17 +62,38 @@ public class APNSender implements Managed, PushNotificationSender {
 
   private static final Timer SEND_NOTIFICATION_TIMER = Metrics.timer(name(APNSender.class, "sendNotification"));
 
+  private static final Logger logger = LoggerFactory.getLogger(APNSender.class);
+
   public APNSender(ExecutorService executor, ApnConfiguration configuration)
-      throws IOException, NoSuchAlgorithmException, InvalidKeyException
+      throws IOException, NoSuchAlgorithmException, InvalidKeyException, KeyStoreException, CertificateException, UnrecoverableKeyException
   {
     this.executor = executor;
     this.bundleId = configuration.bundleId();
+    this.voipBundleId = configuration.bundleId() + ".voip";
+
+    // Regular APN client using signing key
     this.apnsClient = new ApnsClientBuilder().setSigningKey(
             ApnsSigningKey.loadFromInputStream(new ByteArrayInputStream(configuration.signingKey().value().getBytes()),
                 configuration.teamId().value(), configuration.keyId().value()))
         .setTrustedServerCertificateChain(getClass().getResourceAsStream(APNS_CA_FILENAME))
         .setApnsServer(configuration.sandbox() ? ApnsClientBuilder.DEVELOPMENT_APNS_HOST : ApnsClientBuilder.PRODUCTION_APNS_HOST)
         .build();
+
+    // VoIP APN client using certificate
+    if (configuration.voip() != null) {
+      final VoipApnConfiguration voipConfig = configuration.voip();
+
+      // Decode base64 certificate file
+      final byte[] certificateBytes = Base64.getDecoder().decode(voipConfig.certificateFile().value());
+
+      this.voipApnsClient = new ApnsClientBuilder()
+          .setClientCredentials(new ByteArrayInputStream(certificateBytes), voipConfig.certificatePassword().value())
+          .setTrustedServerCertificateChain(getClass().getResourceAsStream(APNS_CA_FILENAME))
+          .setApnsServer(configuration.sandbox() ? ApnsClientBuilder.DEVELOPMENT_APNS_HOST : ApnsClientBuilder.PRODUCTION_APNS_HOST)
+          .build();
+    } else {
+      this.voipApnsClient = null;
+    }
   }
 
   @VisibleForTesting
@@ -70,6 +101,17 @@ public class APNSender implements Managed, PushNotificationSender {
     this.executor = executor;
     this.apnsClient = apnsClient;
     this.bundleId = bundleId;
+    this.voipBundleId = bundleId + ".voip";
+    this.voipApnsClient = null; // For testing, VoIP client not needed
+  }
+
+  @VisibleForTesting
+  public APNSender(ExecutorService executor, ApnsClient apnsClient, ApnsClient voipApnsClient, String bundleId) {
+    this.executor = executor;
+    this.apnsClient = apnsClient;
+    this.voipApnsClient = voipApnsClient;
+    this.bundleId = bundleId;
+    this.voipBundleId = bundleId + ".voip";
   }
 
   @Override
@@ -92,18 +134,25 @@ public class APNSender implements Managed, PushNotificationSender {
           .setContentAvailable(true)
           .addCustomProperty("rateLimitChallenge", notification.data())
           .build();
+
+      case VOIP_CALL_INCOMING -> new SimpleApnsPayloadBuilder()
+          .addCustomProperty("voipCall", notification.data())
+          .build();
     };
 
     final PushType pushType = switch (notification.notificationType()) {
       case NOTIFICATION -> notification.urgent() ? PushType.ALERT : PushType.BACKGROUND;
       case ATTEMPT_LOGIN_NOTIFICATION_HIGH_PRIORITY -> PushType.ALERT;
       case CHALLENGE, RATE_LIMIT_CHALLENGE -> PushType.BACKGROUND;
+      case VOIP_CALL_INCOMING -> PushType.VOIP;
     };
 
     final DeliveryPriority deliveryPriority;
 
     if (pushType == PushType.BACKGROUND) {
       deliveryPriority = DeliveryPriority.CONSERVE_POWER;
+    } else if (pushType == PushType.VOIP) {
+      deliveryPriority = DeliveryPriority.IMMEDIATE;
     } else {
       deliveryPriority = notification.urgent() ? DeliveryPriority.IMMEDIATE : DeliveryPriority.CONSERVE_POWER;
     }
@@ -112,10 +161,28 @@ public class APNSender implements Managed, PushNotificationSender {
         (notification.notificationType() == PushNotification.NotificationType.NOTIFICATION && notification.urgent())
             ? "incoming-message" : null;
 
+    final String targetBundleId = (notification.tokenType() == PushNotification.TokenType.VOIP_APN)
+        ? voipBundleId : bundleId;
+
+    final ApnsClient targetClient = (notification.tokenType() == PushNotification.TokenType.VOIP_APN)
+        ? voipApnsClient : apnsClient;
+
+    if (targetClient == null) {
+      throw new IllegalStateException("VoIP APN client not configured for VoIP notifications");
+    }
+
     final Instant start = Instant.now();
 
-    return apnsClient.sendNotification(new SimpleApnsPushNotification(notification.deviceToken(),
-        bundleId,
+    final String notificationTypeStr = notification.notificationType().name();
+    final String tokenTypeStr = notification.tokenType().name();
+    final String deviceTokenPrefix = notification.deviceToken().length() > 8 ?
+        notification.deviceToken().substring(0, 8) + "..." : notification.deviceToken();
+
+    logger.info("Sending {} notification via {} to device token {}..., bundle: {}, payload: {}",
+        notificationTypeStr, tokenTypeStr, deviceTokenPrefix, targetBundleId, payload);
+
+    return targetClient.sendNotification(new SimpleApnsPushNotification(notification.deviceToken(),
+        targetBundleId,
         payload,
         MAX_EXPIRATION,
         deliveryPriority,
@@ -126,6 +193,11 @@ public class APNSender implements Managed, PushNotificationSender {
           // to avoid any measurement noise that could arise from dispatching to another executor and waiting in its
           // queue
           SEND_NOTIFICATION_TIMER.record(Duration.between(start, Instant.now()));
+
+          if (throwable != null) {
+            logger.error("Failed to send {} notification via {} to device token {}...: {}",
+                notificationTypeStr, tokenTypeStr, deviceTokenPrefix, throwable.getMessage());
+          }
         })
         .thenApplyAsync(response -> {
           final boolean accepted;
@@ -136,11 +208,17 @@ public class APNSender implements Managed, PushNotificationSender {
             accepted = true;
             rejectionReason = Optional.empty();
             unregistered = false;
+
+            logger.info("Successfully sent {} notification via {} to device token {}..., response UUID: {}",
+                notificationTypeStr, tokenTypeStr, deviceTokenPrefix, response.getApnsId());
           } else {
             accepted = false;
             rejectionReason = response.getRejectionReason();
             unregistered = response.getRejectionReason().map(reason -> "Unregistered".equals(reason) || "BadDeviceToken".equals(reason) || "ExpiredToken".equals(reason))
                 .orElse(false);
+
+            logger.warn("Failed to send {} notification via {} to device token {}..., reason: {}, unregistered: {}",
+                notificationTypeStr, tokenTypeStr, deviceTokenPrefix, rejectionReason.orElse("Unknown"), unregistered);
           }
 
           return new SendPushNotificationResult(accepted, rejectionReason, unregistered, response.getTokenInvalidationTimestamp());
@@ -154,5 +232,8 @@ public class APNSender implements Managed, PushNotificationSender {
   @Override
   public void stop() {
     this.apnsClient.close().join();
+    if (this.voipApnsClient != null) {
+      this.voipApnsClient.close().join();
+    }
   }
 }

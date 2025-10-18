@@ -89,6 +89,7 @@ public class FcmSender implements PushNotificationSender {
       case ATTEMPT_LOGIN_NOTIFICATION_HIGH_PRIORITY -> "attemptLoginContext";
       case CHALLENGE -> "challenge";
       case RATE_LIMIT_CHALLENGE -> "rateLimitChallenge";
+      case VOIP_CALL_INCOMING -> throw new RuntimeException("Voip call incoming");
     };
 
     builder.putData(key, pushNotification.data() != null ? pushNotification.data() : "");
