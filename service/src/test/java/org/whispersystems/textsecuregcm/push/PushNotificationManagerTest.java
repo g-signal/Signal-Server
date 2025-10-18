@@ -191,7 +191,7 @@ class PushNotificationManagerTest {
 
     final PushNotificationSender sender = switch (tokenType) {
       case FCM -> fcmSender;
-      case APN -> apnSender;
+      case APN, VOIP_APN -> apnSender;
     };
     when(sender.sendNotification(pushNotification))
         .thenReturn(CompletableFuture.completedFuture(new SendPushNotificationResult(true, Optional.empty(), false, Optional.empty())));

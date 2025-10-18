@@ -170,7 +170,7 @@ class PushNotificationSchedulerTest {
     final ArgumentCaptor<PushNotification> notificationCaptor = ArgumentCaptor.forClass(PushNotification.class);
     verify(switch (tokenType) {
       case FCM -> fcmSender;
-      case APN -> apnSender;
+      case APN, VOIP_APN -> apnSender;
     }).sendNotification(notificationCaptor.capture());
 
     final PushNotification pushNotification = notificationCaptor.getValue();
@@ -178,7 +178,7 @@ class PushNotificationSchedulerTest {
     assertEquals(tokenType, pushNotification.tokenType());
     assertEquals(switch (tokenType) {
       case FCM -> GCM_ID;
-      case APN -> APN_ID;
+      case APN, VOIP_APN -> APN_ID;
     }, pushNotification.deviceToken());
     assertEquals(account, pushNotification.destination());
     assertEquals(device, pushNotification.destinationDevice());
