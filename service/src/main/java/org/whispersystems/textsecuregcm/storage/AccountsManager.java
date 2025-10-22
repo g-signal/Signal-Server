@@ -1227,7 +1227,9 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
                     device.getId())))
         .toList();
     return CompletableFuture.allOf(
-            secureStorageClient.deleteStoredData(account.getUuid()),
+            // todo start 临时注释掉 gaolixin
+            //secureStorageClient.deleteStoredData(account.getUuid()),
+            // todo end
             secureValueRecovery2Client.removeData(account.getUuid()),
             keysManager.deleteSingleUsePreKeys(account.getUuid()),
             keysManager.deleteSingleUsePreKeys(account.getPhoneNumberIdentifier()),
