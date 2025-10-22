@@ -181,6 +181,7 @@ svr2:
   uri: svr2.example.com
   userAuthenticationTokenSharedSecret: secret://svr2.userAuthenticationTokenSharedSecret
   userIdTokenSharedSecret: secret://svr2.userIdTokenSharedSecret
+  svrCaCertificatesEnabled: true
   svrCaCertificates:
     - |
       -----BEGIN CERTIFICATE-----
@@ -209,6 +210,7 @@ svrb:
   uri: svrb.example.com
   userAuthenticationTokenSharedSecret: secret://svrb.userAuthenticationTokenSharedSecret
   userIdTokenSharedSecret: secret://svrb.userIdTokenSharedSecret
+  svrCaCertificatesEnabled: true
   svrCaCertificates:
     - |
       -----BEGIN CERTIFICATE-----
@@ -301,6 +303,7 @@ shortCode:
 storageService:
   uri: storage.example.com
   userAuthenticationTokenSharedSecret: secret://storageService.userAuthenticationTokenSharedSecret
+  storageCaCertificatesEnabled: true
   storageCaCertificates:
     - |
       -----BEGIN CERTIFICATE-----
@@ -423,12 +426,9 @@ oneTimeDonations:
 registrationService:
   host: registration.example.com
   port: 443
-  credentialConfigurationJson: |
-    {
-      "example": "example"
-    }
   identityTokenAudience: https://registration.example.com
   collationKeySalt: secret://registrationService.collationKeySalt
+  registrationCaCertificateEnabled: true
   registrationCaCertificate: | # Registration service TLS certificate trust root
     -----BEGIN CERTIFICATE-----
     ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
@@ -451,10 +451,35 @@ registrationService:
     ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
     AAAAAAAAAAAAAAAAAAAA
     -----END CERTIFICATE-----
+  clientCertificateEnabled: true
+  clientCertificate: |
+    -----BEGIN CERTIFICATE-----
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    AAAAAAAAAAAAAAAAAAAA
+    -----END CERTIFICATE-----
+  clientPrivateKey: secret://registrationService.clientPrivateKey
 
 keyTransparencyService:
   host: kt.example.com
   port: 443
+  tlsCertificateEnabled: true
   tlsCertificate: |
     -----BEGIN CERTIFICATE-----
     ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
@@ -477,6 +502,7 @@ keyTransparencyService:
     ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
     AAAAAAAAAAAAAAAAAAAA
     -----END CERTIFICATE-----
+  clientCertificateEnabled: true
   clientCertificate: |
     -----BEGIN CERTIFICATE-----
     ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz

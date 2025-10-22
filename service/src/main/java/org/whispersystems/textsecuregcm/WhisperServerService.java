@@ -602,7 +602,9 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     KeyTransparencyServiceClient keyTransparencyServiceClient = new KeyTransparencyServiceClient(
         config.getKeyTransparencyServiceConfiguration().host(),
         config.getKeyTransparencyServiceConfiguration().port(),
+        config.getKeyTransparencyServiceConfiguration().tlsCertificateEnabled(),
         config.getKeyTransparencyServiceConfiguration().tlsCertificate(),
+        config.getKeyTransparencyServiceConfiguration().clientCertificateEnabled(),
         config.getKeyTransparencyServiceConfiguration().clientCertificate(),
         config.getKeyTransparencyServiceConfiguration().clientPrivateKey().value());
     SecureValueRecoveryClient secureValueRecovery2Client = new SecureValueRecoveryClient(

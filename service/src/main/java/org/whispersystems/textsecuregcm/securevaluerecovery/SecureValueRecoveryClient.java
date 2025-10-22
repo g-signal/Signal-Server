@@ -53,18 +53,21 @@ public class SecureValueRecoveryClient {
     this.secureValueRecoveryCredentialsGenerator = secureValueRecoveryCredentialsGenerator;
     this.deleteUri = URI.create(configuration.uri()).resolve(DELETE_PATH);
     this.allowedDeletionErrorStatusCodes = allowedDeletionErrorStatusCodes;
-    this.httpClient = FaultTolerantHttpClient.newBuilder()
-        .withCircuitBreaker(configuration.circuitBreaker())
-        .withRetry(configuration.retry())
-        .withRetryExecutor(retryExecutor)
-        .withVersion(HttpClient.Version.HTTP_1_1)
-        .withConnectTimeout(Duration.ofSeconds(10))
-        .withRedirect(HttpClient.Redirect.NEVER)
-        .withExecutor(executor)
-        .withName("secure-value-recovery")
-        .withSecurityProtocol(FaultTolerantHttpClient.SECURITY_PROTOCOL_TLS_1_2)
-        .withTrustedServerCertificates(configuration.svrCaCertificates().toArray(new String[0]))
-        .build();
+    FaultTolerantHttpClient.Builder fBuilder = FaultTolerantHttpClient.newBuilder()
+            .withCircuitBreaker(configuration.circuitBreaker())
+            .withRetry(configuration.retry())
+            .withRetryExecutor(retryExecutor)
+            .withVersion(HttpClient.Version.HTTP_1_1)
+            .withConnectTimeout(Duration.ofSeconds(10))
+            .withRedirect(HttpClient.Redirect.NEVER)
+            .withExecutor(executor)
+            .withName("secure-value-recovery")
+            .withSecurityProtocol(FaultTolerantHttpClient.SECURITY_PROTOCOL_TLS_1_2);
+
+    if(configuration.svrCaCertificatesEnabled()){
+      fBuilder.withTrustedServerCertificates(configuration.svrCaCertificates().toArray(new String[0]));
+    }
+    this.httpClient = fBuilder.build();
   }
 
   public CompletableFuture<Void> removeData(final UUID accountUuid) {

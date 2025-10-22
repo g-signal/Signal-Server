@@ -66,20 +66,35 @@ public class RegistrationServiceClient implements Managed {
 
   public RegistrationServiceClient(final String host,
       final int port,
-      final CallCredentials callCredentials,
+      final Boolean registrationCaCertificateEnabled,
       final String caCertificatePem,
+      final Boolean clientCertificateEnabled,
+      final String clientCertificatePem,
+      final String clientPrivateKey,
       final byte[] collationKeySalt,
       final Executor callbackExecutor) throws IOException {
 
-    try (final ByteArrayInputStream certificateInputStream = new ByteArrayInputStream(caCertificatePem.getBytes(StandardCharsets.UTF_8))) {
-      final ChannelCredentials tlsChannelCredentials = TlsChannelCredentials.newBuilder()
-          .trustManager(certificateInputStream)
-          .build();
+    TlsChannelCredentials.Builder tlsBuilder =  TlsChannelCredentials.newBuilder();
+    ChannelCredentials tlsChannelCredentials = null;
 
-      this.channel = Grpc.newChannelBuilderForAddress(host, port, tlsChannelCredentials)
-          .idleTimeout(1, TimeUnit.MINUTES)
-          .build();
+    if(registrationCaCertificateEnabled){
+      try (final ByteArrayInputStream certificateInputStream = new ByteArrayInputStream(caCertificatePem.getBytes(StandardCharsets.UTF_8))) {
+        tlsBuilder.trustManager(certificateInputStream);
+      }
     }
+
+    if(clientCertificateEnabled){
+      try (final ByteArrayInputStream clientCertificatePemInputStream = new ByteArrayInputStream(clientCertificatePem.getBytes(StandardCharsets.UTF_8));
+           final ByteArrayInputStream clientPrivateKeyInputStream = new ByteArrayInputStream(clientPrivateKey.getBytes(StandardCharsets.UTF_8))) {
+        tlsBuilder.keyManager(clientCertificatePemInputStream, clientPrivateKeyInputStream);
+      }
+    }
+
+    tlsChannelCredentials =tlsBuilder.build();
+
+    this.channel = Grpc.newChannelBuilderForAddress(host, port, tlsChannelCredentials)
+            .idleTimeout(1, TimeUnit.MINUTES)
+            .build();
 
     this.stub = RegistrationServiceGrpc.newFutureStub(channel);
     this.collationKeySalt = collationKeySalt;

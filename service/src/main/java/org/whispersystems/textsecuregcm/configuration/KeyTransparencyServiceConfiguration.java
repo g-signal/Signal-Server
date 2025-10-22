@@ -12,6 +12,8 @@ import org.whispersystems.textsecuregcm.configuration.secrets.SecretString;
 
 public record KeyTransparencyServiceConfiguration(@NotBlank String host,
                                                   @Positive int port,
-                                                  @NotBlank String tlsCertificate,
-                                                  @NotBlank String clientCertificate,
-                                                  @NotNull SecretString clientPrivateKey) {}
+                                                  @NotNull Boolean tlsCertificateEnabled,
+                                                  String tlsCertificate,
+                                                  @NotNull Boolean clientCertificateEnabled,
+                                                  String clientCertificate,
+                                                  SecretString clientPrivateKey) {}

@@ -59,6 +59,7 @@ class SecureStorageClientTest {
     final SecureStorageServiceConfiguration config = new SecureStorageServiceConfiguration(
         randomSecretBytes(32),
         "http://localhost:" + wireMock.getPort(),
+        true,
         List.of("""
             -----BEGIN CERTIFICATE-----
             MIICZDCCAc2gAwIBAgIBADANBgkqhkiG9w0BAQ0FADBPMQswCQYDVQQGEwJ1czEL

@@ -63,6 +63,7 @@ class SecureValueRecoveryClientTest {
         "http://localhost:" + wireMock.getPort(),
         randomSecretBytes(32),
         randomSecretBytes(32),
+        true,
         // This is a randomly-generated, throwaway certificate that's not actually connected to anything
         List.of("""
             -----BEGIN CERTIFICATE-----

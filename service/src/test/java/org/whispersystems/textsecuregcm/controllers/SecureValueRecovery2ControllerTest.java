@@ -46,6 +46,7 @@ public class SecureValueRecovery2ControllerTest {
       "",
       randomSecretBytes(32),
       randomSecretBytes(32),
+      true,
       null,
       null,
       null

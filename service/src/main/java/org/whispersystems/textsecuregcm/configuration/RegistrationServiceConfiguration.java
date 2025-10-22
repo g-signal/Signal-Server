@@ -8,15 +8,19 @@ import java.io.IOException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretBytes;
+import org.whispersystems.textsecuregcm.configuration.secrets.SecretString;
 import org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentials;
 import org.whispersystems.textsecuregcm.registration.RegistrationServiceClient;
 
 @JsonTypeName("default")
 public record RegistrationServiceConfiguration(@NotBlank String host,
                                                int port,
-                                               @NotBlank String credentialConfigurationJson,
                                                @NotBlank String identityTokenAudience,
-                                               @NotBlank String registrationCaCertificate,
+                                               @NotNull  Boolean registrationCaCertificateEnabled,
+                                               String registrationCaCertificate,
+                                               @NotNull  Boolean clientCertificateEnabled,
+                                               String clientCertificate,
+                                               SecretString clientPrivateKey,
                                                @NotNull SecretBytes collationKeySalt) implements
     RegistrationServiceClientFactory {
 
@@ -28,7 +32,13 @@ public record RegistrationServiceConfiguration(@NotBlank String host,
 
       //environment.lifecycle().manage(callCredentials);
 
-      return new RegistrationServiceClient(host, port, callCredentials, registrationCaCertificate, collationKeySalt.value(),
+      return new RegistrationServiceClient(host, port,
+              registrationCaCertificateEnabled,
+              registrationCaCertificate,
+              clientCertificateEnabled,
+              clientCertificate,
+              clientPrivateKey.value(),
+              collationKeySalt.value(),
           identityRefreshExecutor);
     } catch (IOException e) {
       throw new RuntimeException(e);

@@ -14,7 +14,8 @@ import org.whispersystems.textsecuregcm.configuration.secrets.SecretBytes;
 
 public record SecureStorageServiceConfiguration(@NotNull SecretBytes userAuthenticationTokenSharedSecret,
                                                 @NotBlank String uri,
-                                                @NotEmpty List<@NotBlank String> storageCaCertificates,
+                                                @NotNull Boolean storageCaCertificatesEnabled,
+                                                List<@NotBlank String> storageCaCertificates,
                                                 @Valid CircuitBreakerConfiguration circuitBreaker,
                                                 @Valid RetryConfiguration retry) {
   public SecureStorageServiceConfiguration {

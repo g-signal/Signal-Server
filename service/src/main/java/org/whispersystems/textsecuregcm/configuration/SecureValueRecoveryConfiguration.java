@@ -16,7 +16,8 @@ public record SecureValueRecoveryConfiguration(
     @NotBlank String uri,
     @ExactlySize(32) SecretBytes userAuthenticationTokenSharedSecret,
     @ExactlySize(32) SecretBytes userIdTokenSharedSecret,
-    @NotEmpty List<@NotBlank String> svrCaCertificates,
+    @NotNull Boolean svrCaCertificatesEnabled,
+    List<@NotBlank String> svrCaCertificates,
     @NotNull @Valid CircuitBreakerConfiguration circuitBreaker,
     @NotNull @Valid RetryConfiguration retry) {
 

@@ -53,27 +53,36 @@ public class KeyTransparencyServiceClient implements Managed {
   public KeyTransparencyServiceClient(
       final String host,
       final int port,
+      final Boolean tlsCertificateEnabled,
       final String tlsCertificate,
+      final Boolean clientCertificateEnabled,
       final String clientCertificate,
       final String clientPrivateKey
   ) throws IOException {
     this.host = host;
     this.port = port;
-    try (final ByteArrayInputStream certificateInputStream = new ByteArrayInputStream(
-        tlsCertificate.getBytes(StandardCharsets.UTF_8));
-        final ByteArrayInputStream clientCertificateInputStream = new ByteArrayInputStream(
-            clientCertificate.getBytes(StandardCharsets.UTF_8));
-        final ByteArrayInputStream clientPrivateKeyInputStream = new ByteArrayInputStream(
-            clientPrivateKey.getBytes(StandardCharsets.UTF_8))
-    ) {
-      tlsChannelCredentials = TlsChannelCredentials.newBuilder()
-          .trustManager(certificateInputStream)
-          .keyManager(clientCertificateInputStream, clientPrivateKeyInputStream)
-          .build();
 
-      configureClientCertificateMetrics(clientCertificate);
-
+    TlsChannelCredentials.Builder tlsBuilder = TlsChannelCredentials.newBuilder();
+    if(tlsCertificateEnabled){
+      try (final ByteArrayInputStream certificateInputStream = new ByteArrayInputStream(
+              tlsCertificate.getBytes(StandardCharsets.UTF_8))){
+        tlsBuilder.trustManager(certificateInputStream);
+      }
     }
+
+
+    if(clientCertificateEnabled){
+      try (final ByteArrayInputStream clientCertificateInputStream = new ByteArrayInputStream(
+                   clientCertificate.getBytes(StandardCharsets.UTF_8));
+           final ByteArrayInputStream clientPrivateKeyInputStream = new ByteArrayInputStream(
+                   clientPrivateKey.getBytes(StandardCharsets.UTF_8))
+      ){
+        tlsBuilder.keyManager(clientCertificateInputStream, clientPrivateKeyInputStream);
+        configureClientCertificateMetrics(clientCertificate);
+      }
+    }
+
+    tlsChannelCredentials = tlsBuilder.build();
   }
 
   private void configureClientCertificateMetrics(String clientCertificate) {

@@ -115,6 +115,7 @@ public class BackupManagerTest {
       "",
       randomSecretBytes(32),
       randomSecretBytes(32),
+      true,
       null,
       null,
       null);
