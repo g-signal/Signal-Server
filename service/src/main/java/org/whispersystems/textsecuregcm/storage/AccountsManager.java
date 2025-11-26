@@ -1519,11 +1519,11 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   public CompletableFuture<Optional<TransferArchiveResult>> waitForTransferArchive(final Account account, final Device device, final Duration timeout) {
     final DeviceIdentifier timestampDeviceIdentifier = new TimestampDeviceIdentifier(account.getIdentifier(IdentityType.ACI), device.getId(), Instant.ofEpochMilli(device.getCreated()));
     final String timestampTransferArchiveKey = getTimestampTransferArchiveKey(account.getIdentifier(IdentityType.ACI), device.getId(), Instant.ofEpochMilli(device.getCreated()));
-    logger.debug("waitForTransferArchive, timestampTransferArchiveKey:"+timestampTransferArchiveKey);
+    logger.info("waitForTransferArchive, timestampTransferArchiveKey:"+timestampTransferArchiveKey);
 
     final DeviceIdentifier registrationIdDeviceIdentifier = new RegistrationIdDeviceIdentifier(account.getIdentifier(IdentityType.ACI), device.getId(), device.getRegistrationId(IdentityType.ACI));
     final String registrationIdTransferArchiveKey = getRegistrationIdTransferArchiveKey(account.getIdentifier(IdentityType.ACI), device.getId(), device.getRegistrationId(IdentityType.ACI));
-    logger.debug("waitForTransferArchive, registrationIdTransferArchiveKey:"+registrationIdTransferArchiveKey);
+    logger.info("waitForTransferArchive, registrationIdTransferArchiveKey:"+registrationIdTransferArchiveKey);
 
     final CompletableFuture<Optional<TransferArchiveResult>> timestampFuture = waitForPubSubKey(waitForTransferArchiveFuturesByDeviceIdentifier,
         timestampDeviceIdentifier,
@@ -1574,7 +1574,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
                 // We validate the request object so this should never happen
                 .orElseThrow(() -> new AssertionError("No creation timestamp or registration ID provided")));
 
-        logger.debug("recordTransferArchiveUpload key:" +key);
+        logger.info("recordTransferArchiveUpload key:" +key);
         return connection.async()
             .set(key, transferArchiveJson, SetArgs.Builder.ex(RECENTLY_ADDED_TRANSFER_ARCHIVE_TTL))
             .thenRun(Util.NOOP)
