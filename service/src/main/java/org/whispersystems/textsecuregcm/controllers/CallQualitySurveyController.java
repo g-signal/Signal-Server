@@ -58,6 +58,10 @@ public class CallQualitySurveyController {
       @HeaderParam(HttpHeaders.USER_AGENT) final String userAgentString,
       @Context final ContainerRequestContext requestContext) {
 
+    if (this.callQualitySurveyManager==null) {
+      return;
+    }
+
     if (authenticatedDevice.isPresent()) {
       throw new ForbiddenException("must not use authenticated connection for call quality survey submissions");
     }

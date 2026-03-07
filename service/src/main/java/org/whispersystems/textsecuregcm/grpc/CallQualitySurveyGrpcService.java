@@ -31,6 +31,10 @@ public class CallQualitySurveyGrpcService extends SimpleCallQualityGrpc.CallQual
   public SubmitCallQualitySurveyResponse submitCallQualitySurvey(final SubmitCallQualitySurveyRequest request)
       throws RateLimitExceededException {
 
+    if(this.callQualitySurveyManager==null){
+      return SubmitCallQualitySurveyResponse.getDefaultInstance();
+    }
+
     final String remoteAddress = RequestAttributesUtil.getRemoteAddress().getHostAddress();
 
     rateLimiters.getSubmitCallQualitySurveyLimiter().validate(remoteAddress);
