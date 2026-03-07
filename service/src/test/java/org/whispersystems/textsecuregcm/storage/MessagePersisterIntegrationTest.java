@@ -23,6 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.entities.MessageProtos;
+import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.push.MessageAvailabilityListener;
 import org.whispersystems.textsecuregcm.push.RedisMessageAvailabilityManager;
 import org.whispersystems.textsecuregcm.redis.RedisClusterExtension;
@@ -59,6 +61,7 @@ class MessagePersisterIntegrationTest {
   private RedisMessageAvailabilityManager redisMessageAvailabilityManager;
   private MessagePersister messagePersister;
   private Account account;
+  private ExperimentEnrollmentManager experimentEnrollmentManager;
 
   private static final Duration PERSIST_DELAY = Duration.ofMinutes(10);
 
@@ -75,15 +78,16 @@ class MessagePersisterIntegrationTest {
 
     messageDeliveryScheduler = Schedulers.newBoundedElastic(10, 10_000, "messageDelivery");
     messageDeletionExecutorService = Executors.newSingleThreadExecutor();
+    experimentEnrollmentManager = mock(ExperimentEnrollmentManager.class);
     final MessagesDynamoDb messagesDynamoDb = new MessagesDynamoDb(DYNAMO_DB_EXTENSION.getDynamoDbClient(),
         DYNAMO_DB_EXTENSION.getDynamoDbAsyncClient(), Tables.MESSAGES.tableName(), Duration.ofDays(14),
-        messageDeletionExecutorService);
+        messageDeletionExecutorService, experimentEnrollmentManager);
     final AccountsManager accountsManager = mock(AccountsManager.class);
 
     messagesCache = new MessagesCache(REDIS_CLUSTER_EXTENSION.getRedisCluster(),
-        messageDeliveryScheduler, messageDeletionExecutorService, Clock.systemUTC());
-    messagesManager = new MessagesManager(messagesDynamoDb, messagesCache, mock(ReportMessageManager.class),
-        messageDeletionExecutorService, Clock.systemUTC());
+        messageDeliveryScheduler, messageDeletionExecutorService, mock(ScheduledExecutorService.class), Clock.systemUTC(), experimentEnrollmentManager);
+    messagesManager = new MessagesManager(messagesDynamoDb, messagesCache, mock(RedisMessageAvailabilityManager.class),
+        mock(ReportMessageManager.class), messageDeletionExecutorService, Clock.systemUTC());
 
     websocketConnectionEventExecutor = Executors.newVirtualThreadPerTaskExecutor();
     asyncOperationQueueingExecutor = Executors.newSingleThreadExecutor();
@@ -165,7 +169,7 @@ class MessagePersisterIntegrationTest {
         }
 
         @Override
-        public void handleConflictingMessageReader() {
+        public void handleConflictingMessageConsumer() {
         }
       });
 
@@ -185,7 +189,7 @@ class MessagePersisterIntegrationTest {
           dynamoDB.scan(ScanRequest.builder().tableName(Tables.MESSAGES.tableName()).build()).items().stream()
               .map(item -> {
                 try {
-                  return MessagesDynamoDb.convertItemToEnvelope(item);
+                  return MessagesDynamoDb.convertItemToEnvelope(item, experimentEnrollmentManager);
                 } catch (InvalidProtocolBufferException e) {
                   fail("Could not parse stored message", e);
                   return null;

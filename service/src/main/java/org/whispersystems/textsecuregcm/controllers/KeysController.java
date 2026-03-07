@@ -6,7 +6,6 @@ package org.whispersystems.textsecuregcm.controllers;
 
 import com.google.common.net.HttpHeaders;
 import io.dropwizard.auth.Auth;
-import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
@@ -39,18 +38,18 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import javax.annotation.Nullable;
+import org.glassfish.jersey.server.ManagedAsync;
 import org.signal.libsignal.protocol.IdentityKey;
 import org.signal.libsignal.zkgroup.ServerSecretParams;
 import org.signal.libsignal.zkgroup.VerificationFailedException;
 import org.signal.libsignal.zkgroup.groupsend.GroupSendDerivedKeyPair;
 import org.signal.libsignal.zkgroup.groupsend.GroupSendFullToken;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.auth.Anonymous;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.auth.GroupSendTokenHeader;
@@ -83,7 +82,6 @@ import reactor.core.publisher.Mono;
 @io.swagger.v3.oas.annotations.tags.Tag(name = "Keys")
 public class KeysController {
 
-  private static final Logger log = LoggerFactory.getLogger(KeysController.class);
   private final RateLimiters rateLimiters;
   private final KeysManager keysManager;
   private final AccountsManager accounts;
@@ -91,8 +89,6 @@ public class KeysController {
   private final Clock clock;
 
   private static final String STORE_KEYS_COUNTER_NAME = MetricsUtil.name(KeysController.class, "storeKeys");
-  private static final String STORE_KEY_BUNDLE_SIZE_DISTRIBUTION_NAME =
-      MetricsUtil.name(KeysController.class, "storeKeyBundleSize");
   private static final String PRIMARY_DEVICE_TAG_NAME = "isPrimary";
   private static final String IDENTITY_TYPE_TAG_NAME = "identityType";
   private static final String KEY_TYPE_TAG_NAME = "keyType";
@@ -173,12 +169,6 @@ public class KeysController {
 
             Metrics.counter(STORE_KEYS_COUNTER_NAME, tags).increment();
 
-            DistributionSummary.builder(STORE_KEY_BUNDLE_SIZE_DISTRIBUTION_NAME)
-                .tags(tags)
-                .publishPercentileHistogram()
-                .register(Metrics.globalRegistry)
-                .record(setKeysRequest.preKeys().size());
-
             storeFutures.add(keysManager.storeEcOneTimePreKeys(identifier, device.getId(), setKeysRequest.preKeys()));
           }
 
@@ -193,12 +183,6 @@ public class KeysController {
           if (!setKeysRequest.pqPreKeys().isEmpty()) {
             final Tags tags = Tags.of(platformTag, primaryDeviceTag, identityTypeTag, Tag.of(KEY_TYPE_TAG_NAME, "kyber"));
             Metrics.counter(STORE_KEYS_COUNTER_NAME, tags).increment();
-
-            DistributionSummary.builder(STORE_KEY_BUNDLE_SIZE_DISTRIBUTION_NAME)
-                .tags(tags)
-                .publishPercentileHistogram()
-                .register(Metrics.globalRegistry)
-                .record(setKeysRequest.pqPreKeys().size());
 
             storeFutures.add(keysManager.storeKemOneTimePreKeys(identifier, device.getId(), setKeysRequest.pqPreKeys()));
           }
@@ -334,6 +318,7 @@ public class KeysController {
   }
 
   @GET
+  @ManagedAsync
   @Path("/{identifier}/{device_id}")
   @Produces(MediaType.APPLICATION_JSON)
   @Operation(summary = "Fetch public keys for another user",
@@ -385,9 +370,8 @@ public class KeysController {
     final Account target = maybeTarget.orElseThrow(NotFoundException::new);
 
     if (account.isPresent()) {
-      rateLimiters.getPreKeysLimiter().validate(
-          account.get().getUuid() + "." + maybeAuthenticatedDevice.get().deviceId() + "__" + targetIdentifier.uuid()
-              + "." + deviceId);
+      rateLimiters.getPreKeysLimiter().validate(getPreKeysLimiterKey(account.get(), maybeAuthenticatedDevice.get(),
+          targetIdentifier, target, deviceId));
     }
 
     final List<Device> devices = parseDeviceId(deviceId, target);
@@ -401,7 +385,8 @@ public class KeysController {
                 devicePreKeys.ecPreKey().orElse(null),
                 devicePreKeys.kemSignedPreKey())))
         .collectList()
-        .block();
+        .blockOptional()
+        .orElseGet(Collections::emptyList);
 
     final IdentityKey identityKey = target.getIdentityKey(targetIdentifier.identityType());
 
@@ -422,5 +407,25 @@ public class KeysController {
     } catch (NumberFormatException e) {
       throw new WebApplicationException(Response.status(422).build());
     }
+  }
+
+  private String getPreKeysLimiterKey(
+      final Account account,
+      final AuthenticatedDevice authenticatedDevice,
+      final ServiceIdentifier targetIdentifier,
+      final Account targetAccount,
+      final String targetDeviceId) {
+    final String targetRegistrationId = targetDeviceId.equals("*")
+        ? "*"
+        : String.valueOf(
+            parseDeviceId(targetDeviceId, targetAccount).getFirst().getRegistrationId(targetIdentifier.identityType()));
+
+    return String.format("%s.%s__%s.%s.%s",
+        account.getUuid(),
+        authenticatedDevice.deviceId(),
+        targetIdentifier.uuid(),
+        targetDeviceId,
+        targetRegistrationId
+    );
   }
 }

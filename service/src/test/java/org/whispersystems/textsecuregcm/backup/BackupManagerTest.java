@@ -13,6 +13,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -22,8 +23,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.whispersystems.textsecuregcm.util.MockUtils.randomSecretBytes;
 
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
+import io.dropwizard.util.DataSize;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -73,10 +73,13 @@ import org.whispersystems.textsecuregcm.auth.AuthenticatedBackupUser;
 import org.whispersystems.textsecuregcm.auth.ExternalServiceCredentials;
 import org.whispersystems.textsecuregcm.auth.ExternalServiceCredentialsGenerator;
 import org.whispersystems.textsecuregcm.configuration.SecureValueRecoveryConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicBackupConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.controllers.RateLimitExceededException;
 import org.whispersystems.textsecuregcm.limits.RateLimiter;
 import org.whispersystems.textsecuregcm.limits.RateLimiters;
 import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
+import org.whispersystems.textsecuregcm.storage.DynamicConfigurationManager;
 import org.whispersystems.textsecuregcm.storage.DynamoDbExtension;
 import org.whispersystems.textsecuregcm.storage.DynamoDbExtensionSchema;
 import org.whispersystems.textsecuregcm.util.AttributeValues;
@@ -100,6 +103,7 @@ public class BackupManagerTest {
   private static final CopyParameters COPY_PARAM = new CopyParameters(
       3, "abc", 100,
       COPY_ENCRYPTION_PARAM, TestRandomUtil.nextBytes(15));
+  private static final long MAX_TOTAL_MEDIA_BYTES = DataSize.mebibytes(1).toBytes();
 
   private final TestClock testClock = TestClock.now();
   private final BackupAuthTestUtil backupAuthTestUtil = new BackupAuthTestUtil(testClock);
@@ -109,6 +113,8 @@ public class BackupManagerTest {
   private final RemoteStorageManager remoteStorageManager = mock(RemoteStorageManager.class);
   private final byte[] backupKey = TestRandomUtil.nextBytes(32);
   private final UUID aci = UUID.randomUUID();
+  private final DynamicBackupConfiguration backupConfiguration = new DynamicBackupConfiguration(
+    3, 4, 5, Duration.ofSeconds(30), MAX_TOTAL_MEDIA_BYTES);
 
 
   private static final SecureValueRecoveryConfiguration CFG = new SecureValueRecoveryConfiguration(
@@ -140,6 +146,12 @@ public class BackupManagerTest {
         DYNAMO_DB_EXTENSION.getDynamoDbAsyncClient(),
         DynamoDbExtensionSchema.Tables.BACKUPS.tableName(),
         testClock);
+    @SuppressWarnings("unchecked") final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager =
+        mock(DynamicConfigurationManager.class);
+    final DynamicConfiguration dynamicConfiguration = mock(DynamicConfiguration.class);
+    when(dynamicConfiguration.getBackupConfiguration()).thenReturn(backupConfiguration);
+    when(dynamicConfigurationManager.getConfiguration()).thenReturn(dynamicConfiguration);
+
     this.backupManager = new BackupManager(
         backupsDb,
         backupAuthTestUtil.params,
@@ -149,7 +161,8 @@ public class BackupManagerTest {
         remoteStorageManager,
         svrbCredentialGenerator,
         svrbClient,
-        testClock);
+        testClock,
+        dynamicConfigurationManager);
   }
 
   @ParameterizedTest
@@ -170,11 +183,7 @@ public class BackupManagerTest {
         () -> BackupManager.checkBackupLevel(backupUser, requiredLevel);
 
     if (expectException) {
-      assertThatExceptionOfType(StatusRuntimeException.class)
-          .isThrownBy(checkBackupLevel)
-          .extracting(StatusRuntimeException::getStatus)
-          .extracting(Status::getCode)
-          .isEqualTo(Status.Code.PERMISSION_DENIED);
+      assertThatExceptionOfType(BackupPermissionException.class).isThrownBy(checkBackupLevel);
     } else {
       assertThatNoException().isThrownBy(checkBackupLevel);
     }
@@ -198,11 +207,7 @@ public class BackupManagerTest {
         () -> BackupManager.checkBackupCredentialType(backupUser, requiredCredentialType);
 
     if (expectException) {
-      assertThatExceptionOfType(StatusRuntimeException.class)
-          .isThrownBy(checkCredentialType)
-          .extracting(StatusRuntimeException::getStatus)
-          .extracting(Status::getCode)
-          .isEqualTo(Status.Code.UNAUTHENTICATED);
+      assertThatExceptionOfType(BackupWrongCredentialTypeException.class).isThrownBy(checkCredentialType);
     } else {
       assertThatNoException().isThrownBy(checkCredentialType);
     }
@@ -210,18 +215,18 @@ public class BackupManagerTest {
 
   @ParameterizedTest
   @EnumSource
-  public void createBackup(final BackupLevel backupLevel) {
+  public void createBackup(final BackupLevel backupLevel) throws BackupException {
 
     final Instant now = Instant.ofEpochSecond(Duration.ofDays(1).getSeconds());
     testClock.pin(now);
 
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, backupLevel);
 
-    backupManager.createMessageBackupUploadDescriptor(backupUser).join();
+    backupManager.createMessageBackupUploadDescriptor(backupUser);
     verify(tusCredentialGenerator, times(1))
         .generateUpload("%s/%s".formatted(backupUser.backupDir(), BackupManager.MESSAGE_BACKUP_NAME));
 
-    final BackupManager.BackupInfo info = backupManager.backupInfo(backupUser).join();
+    final BackupManager.BackupInfo info = backupManager.backupInfo(backupUser);
     assertThat(info.backupSubdir()).isEqualTo(backupUser.backupDir()).isNotBlank();
     assertThat(info.messageBackupKey()).isEqualTo(BackupManager.MESSAGE_BACKUP_NAME);
     assertThat(info.mediaUsedSpace()).isEqualTo(Optional.empty());
@@ -239,44 +244,36 @@ public class BackupManagerTest {
 
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, backupLevel);
 
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> backupManager.createMessageBackupUploadDescriptor(backupUser).join())
-        .matches(exception -> exception.getStatus().getCode() == Status.UNAUTHENTICATED.getCode());
+    assertThatExceptionOfType(BackupWrongCredentialTypeException.class)
+        .isThrownBy(() -> backupManager.createMessageBackupUploadDescriptor(backupUser));
   }
 
   @Test
-  public void createTemporaryMediaAttachmentRateLimited() {
+  public void createTemporaryMediaAttachmentRateLimited() throws RateLimitExceededException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
-    when(mediaUploadLimiter.validateAsync(eq(BackupManager.rateLimitKey(backupUser))))
-        .thenReturn(CompletableFuture.failedFuture(new RateLimitExceededException(null)));
-    CompletableFutureTestUtil.assertFailsWithCause(
-        RateLimitExceededException.class,
-        backupManager.createTemporaryAttachmentUploadDescriptor(backupUser).toCompletableFuture());
+    doThrow(new RateLimitExceededException(null))
+        .when(mediaUploadLimiter).validate(eq(BackupManager.rateLimitKey(backupUser)));
+    assertThatExceptionOfType(RateLimitExceededException.class)
+        .isThrownBy(() -> backupManager.createTemporaryAttachmentUploadDescriptor(backupUser));
   }
 
   @Test
   public void createTemporaryMediaAttachmentWrongTier() {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.FREE);
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> backupManager.createTemporaryAttachmentUploadDescriptor(backupUser))
-        .extracting(StatusRuntimeException::getStatus)
-        .extracting(Status::getCode)
-        .isEqualTo(Status.Code.PERMISSION_DENIED);
+    assertThatExceptionOfType(BackupPermissionException.class)
+        .isThrownBy(() -> backupManager.createTemporaryAttachmentUploadDescriptor(backupUser));
   }
 
   @Test
   public void createTemporaryMediaAttachmentWrongCredentialType() {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID);
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> backupManager.createTemporaryAttachmentUploadDescriptor(backupUser))
-        .extracting(StatusRuntimeException::getStatus)
-        .extracting(Status::getCode)
-        .isEqualTo(Status.Code.UNAUTHENTICATED);
+    assertThatExceptionOfType(BackupWrongCredentialTypeException.class)
+        .isThrownBy(() -> backupManager.createTemporaryAttachmentUploadDescriptor(backupUser));
   }
 
   @ParameterizedTest
   @EnumSource
-  public void ttlRefresh(final BackupLevel backupLevel) {
+  public void ttlRefresh(final BackupLevel backupLevel) throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, backupLevel);
 
     final Instant tstart = Instant.ofEpochSecond(1).plus(Duration.ofDays(1));
@@ -284,11 +281,11 @@ public class BackupManagerTest {
 
     // create backup at t=tstart
     testClock.pin(tstart);
-    backupManager.createMessageBackupUploadDescriptor(backupUser).join();
+    backupManager.createMessageBackupUploadDescriptor(backupUser);
 
     // refresh at t=tnext
     testClock.pin(tnext);
-    backupManager.ttlRefresh(backupUser).join();
+    backupManager.ttlRefresh(backupUser);
 
     checkExpectedExpirations(
         tnext.truncatedTo(ChronoUnit.DAYS),
@@ -298,7 +295,7 @@ public class BackupManagerTest {
 
   @ParameterizedTest
   @EnumSource
-  public void createBackupRefreshesTtl(final BackupLevel backupLevel) {
+  public void createBackupRefreshesTtl(final BackupLevel backupLevel) throws BackupException {
     final Instant tstart = Instant.ofEpochSecond(1).plus(Duration.ofDays(1));
     final Instant tnext = tstart.plus(Duration.ofDays(1));
 
@@ -306,11 +303,11 @@ public class BackupManagerTest {
 
     // create backup at t=tstart
     testClock.pin(tstart);
-    backupManager.createMessageBackupUploadDescriptor(backupUser).join();
+    backupManager.createMessageBackupUploadDescriptor(backupUser);
 
     // create again at t=tnext
     testClock.pin(tnext);
-    backupManager.createMessageBackupUploadDescriptor(backupUser).join();
+    backupManager.createMessageBackupUploadDescriptor(backupUser);
 
     checkExpectedExpirations(
         tnext.truncatedTo(ChronoUnit.DAYS),
@@ -327,19 +324,16 @@ public class BackupManagerTest {
     final ECKeyPair keyPair = ECKeyPair.generate();
 
     // haven't set a public key yet, but should fail before hitting the database anyway
-    assertThatExceptionOfType(StatusRuntimeException.class)
+    assertThatExceptionOfType(BackupFailedZkAuthenticationException.class)
         .isThrownBy(() -> backupManager.authenticateBackupUser(
             invalidPresentation,
             keyPair.getPrivateKey().calculateSignature(invalidPresentation.serialize()),
-            null))
-        .extracting(StatusRuntimeException::getStatus)
-        .extracting(Status::getCode)
-        .isEqualTo(Status.UNAUTHENTICATED.getCode());
+            null));
   }
 
 
   @Test
-  public void invalidPresentationCorrectSignature() throws VerificationFailedException {
+  public void invalidPresentationCorrectSignature() throws VerificationFailedException, BackupException {
     final BackupAuthCredentialPresentation presentation = backupAuthTestUtil.getPresentation(
         BackupLevel.FREE, backupKey, aci);
     final BackupAuthCredentialPresentation invalidPresentation = backupAuthTestUtil.getPresentation(
@@ -350,16 +344,13 @@ public class BackupManagerTest {
     backupManager.setPublicKey(
         presentation,
         keyPair.getPrivateKey().calculateSignature(presentation.serialize()),
-        keyPair.getPublicKey()).join();
+        keyPair.getPublicKey());
 
-    assertThatExceptionOfType(StatusRuntimeException.class)
+    assertThatExceptionOfType(BackupFailedZkAuthenticationException.class)
         .isThrownBy(() -> backupManager.authenticateBackupUser(
             invalidPresentation,
             keyPair.getPrivateKey().calculateSignature(invalidPresentation.serialize()),
-            null))
-        .extracting(StatusRuntimeException::getStatus)
-        .extracting(Status::getCode)
-        .isEqualTo(Status.UNAUTHENTICATED.getCode());
+            null));
   }
 
   @Test
@@ -371,15 +362,12 @@ public class BackupManagerTest {
     final byte[] signature = keyPair.getPrivateKey().calculateSignature(presentation.serialize());
 
     // haven't set a public key yet
-    assertThat(CompletableFutureTestUtil.assertFailsWithCause(
-            StatusRuntimeException.class,
-            backupManager.authenticateBackupUser(presentation, signature, null))
-        .getStatus().getCode())
-        .isEqualTo(Status.UNAUTHENTICATED.getCode());
+    assertThatExceptionOfType(BackupFailedZkAuthenticationException.class)
+        .isThrownBy(() -> backupManager.authenticateBackupUser(presentation, signature, null));
   }
 
   @Test
-  public void mismatchedPublicKey() throws VerificationFailedException {
+  public void mismatchedPublicKey() throws VerificationFailedException, BackupException {
     final BackupAuthCredentialPresentation presentation = backupAuthTestUtil.getPresentation(
         BackupLevel.FREE, backupKey, aci);
 
@@ -388,21 +376,18 @@ public class BackupManagerTest {
     final byte[] signature1 = keyPair1.getPrivateKey().calculateSignature(presentation.serialize());
     final byte[] signature2 = keyPair2.getPrivateKey().calculateSignature(presentation.serialize());
 
-    backupManager.setPublicKey(presentation, signature1, keyPair1.getPublicKey()).join();
+    backupManager.setPublicKey(presentation, signature1, keyPair1.getPublicKey());
 
     // shouldn't be able to set a different public key
-    assertThat(CompletableFutureTestUtil.assertFailsWithCause(
-            StatusRuntimeException.class,
-            backupManager.setPublicKey(presentation, signature2, keyPair2.getPublicKey()))
-        .getStatus().getCode())
-        .isEqualTo(Status.UNAUTHENTICATED.getCode());
+    assertThatExceptionOfType(BackupFailedZkAuthenticationException.class)
+        .isThrownBy(() -> backupManager.setPublicKey(presentation, signature2, keyPair2.getPublicKey()));
 
     // should be able to set the same public key again (noop)
-    backupManager.setPublicKey(presentation, signature1, keyPair1.getPublicKey()).join();
+    backupManager.setPublicKey(presentation, signature1, keyPair1.getPublicKey());
   }
 
   @Test
-  public void signatureValidation() throws VerificationFailedException {
+  public void signatureValidation() throws VerificationFailedException, BackupException {
     final BackupAuthCredentialPresentation presentation = backupAuthTestUtil.getPresentation(
         BackupLevel.FREE, backupKey, aci);
 
@@ -414,28 +399,23 @@ public class BackupManagerTest {
     wrongSignature[1] += 1;
 
     // shouldn't be able to set a public key with an invalid signature
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> backupManager.setPublicKey(presentation, wrongSignature, keyPair.getPublicKey()))
-        .extracting(ex -> ex.getStatus().getCode())
-        .isEqualTo(Status.UNAUTHENTICATED.getCode());
+    assertThatExceptionOfType(BackupFailedZkAuthenticationException.class)
+        .isThrownBy(() -> backupManager.setPublicKey(presentation, wrongSignature, keyPair.getPublicKey()));
 
-    backupManager.setPublicKey(presentation, signature, keyPair.getPublicKey()).join();
+    backupManager.setPublicKey(presentation, signature, keyPair.getPublicKey());
 
     // shouldn't be able to authenticate with an invalid signature
-    assertThat(CompletableFutureTestUtil.assertFailsWithCause(
-            StatusRuntimeException.class,
-            backupManager.authenticateBackupUser(presentation, wrongSignature, null))
-        .getStatus().getCode())
-        .isEqualTo(Status.UNAUTHENTICATED.getCode());
+    assertThatExceptionOfType(BackupFailedZkAuthenticationException.class)
+        .isThrownBy(() -> backupManager.authenticateBackupUser(presentation, wrongSignature, null));
 
     // correct signature
-    final AuthenticatedBackupUser user = backupManager.authenticateBackupUser(presentation, signature, null).join();
+    final AuthenticatedBackupUser user = backupManager.authenticateBackupUser(presentation, signature, null);
     assertThat(user.backupId()).isEqualTo(presentation.getBackupId());
     assertThat(user.backupLevel()).isEqualTo(BackupLevel.FREE);
   }
 
   @Test
-  public void credentialExpiration() throws VerificationFailedException {
+  public void credentialExpiration() throws VerificationFailedException, BackupException {
 
     // credential for 1 day after epoch
     testClock.pin(Instant.ofEpochSecond(1).plus(Duration.ofDays(1)));
@@ -443,27 +423,24 @@ public class BackupManagerTest {
         backupKey, aci);
     final ECKeyPair keyPair = ECKeyPair.generate();
     final byte[] signature = keyPair.getPrivateKey().calculateSignature(oldCredential.serialize());
-    backupManager.setPublicKey(oldCredential, signature, keyPair.getPublicKey()).join();
+    backupManager.setPublicKey(oldCredential, signature, keyPair.getPublicKey());
 
     // should be accepted the day before to forgive clock skew
     testClock.pin(Instant.ofEpochSecond(1));
-    assertThatNoException().isThrownBy(() -> backupManager.authenticateBackupUser(oldCredential, signature, null).join());
+    assertThatNoException().isThrownBy(() -> backupManager.authenticateBackupUser(oldCredential, signature, null));
 
     // should be accepted the day after to forgive clock skew
     testClock.pin(Instant.ofEpochSecond(1).plus(Duration.ofDays(2)));
-    assertThatNoException().isThrownBy(() -> backupManager.authenticateBackupUser(oldCredential, signature, null).join());
+    assertThatNoException().isThrownBy(() -> backupManager.authenticateBackupUser(oldCredential, signature, null));
 
     // should be rejected the day after that
     testClock.pin(Instant.ofEpochSecond(1).plus(Duration.ofDays(3)));
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> backupManager.authenticateBackupUser(oldCredential, signature, null))
-        .extracting(StatusRuntimeException::getStatus)
-        .extracting(Status::getCode)
-        .isEqualTo(Status.UNAUTHENTICATED.getCode());
+    assertThatExceptionOfType(BackupFailedZkAuthenticationException.class)
+        .isThrownBy(() -> backupManager.authenticateBackupUser(oldCredential, signature, null));
   }
 
   @Test
-  public void copySuccess() {
+  public void copySuccess() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     final CopyResult copied = copy(backupUser);
 
@@ -480,7 +457,7 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void copyUsageCheckpoints() throws InterruptedException {
+  public void copyUsageCheckpoints() throws InterruptedException, BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     backupsDb.setMediaUsage(backupUser, new UsageInfo(0, 0)).join();
 
@@ -491,7 +468,7 @@ public class BackupManagerTest {
         .map(source -> new CopyParameters(3, source, 100, COPY_ENCRYPTION_PARAM, TestRandomUtil.nextBytes(15)))
         .toList();
 
-    final int slowIndex = BackupManager.USAGE_CHECKPOINT_COUNT - 1;
+    final int slowIndex = backupConfiguration.usageCheckpointCount() - 1;
     final CompletableFuture<Void> slow = new CompletableFuture<>();
     when(remoteStorageManager.copy(eq(3), anyString(), eq(100), any(), anyString()))
         .thenReturn(CompletableFuture.completedFuture(null));
@@ -499,7 +476,7 @@ public class BackupManagerTest {
         .thenReturn(slow);
     final ArrayBlockingQueue<CopyResult> copyResults = new ArrayBlockingQueue<>(100);
     final CompletableFuture<Void> future = backupManager
-        .copyToBackup(backupUser, toCopy)
+        .copyToBackup(backupManager.getCopyQuota(backupUser, toCopy))
         .doOnNext(copyResults::add).then().toFuture();
 
     for (int i = 0; i < slowIndex; i++) {
@@ -508,15 +485,14 @@ public class BackupManagerTest {
 
     // Copying can start on the next batch of USAGE_CHECKPOINT_COUNT before the current one is done, so we should see
     // at least one usage update, and at most 2
-    final UsageInfo usage = backupsDb.getMediaUsage(backupUser).join().usageInfo();
     final long bytesPerObject = COPY_ENCRYPTION_PARAM.outputSize(100);
     assertThat(backupsDb.getMediaUsage(backupUser).join().usageInfo()).isIn(
         new UsageInfo(
-            bytesPerObject * BackupManager.USAGE_CHECKPOINT_COUNT,
-            BackupManager.USAGE_CHECKPOINT_COUNT),
+            bytesPerObject * backupConfiguration.usageCheckpointCount(),
+            backupConfiguration.usageCheckpointCount()),
         new UsageInfo(
-            2 * bytesPerObject * BackupManager.USAGE_CHECKPOINT_COUNT,
-            2 * BackupManager.USAGE_CHECKPOINT_COUNT));
+            2 * bytesPerObject * backupConfiguration.usageCheckpointCount(),
+            2L * backupConfiguration.usageCheckpointCount()));
 
     // We should still be waiting since we have a slow delete
     assertThat(future).isNotDone();
@@ -528,7 +504,7 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void copyFailure() {
+  public void copyFailure() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     assertThat(copyError(backupUser, new SourceObjectNotFoundException()).outcome())
         .isEqualTo(CopyResult.Outcome.SOURCE_NOT_FOUND);
@@ -540,7 +516,7 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void copyPartialSuccess() {
+  public void copyPartialSuccess() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     final List<CopyParameters> toCopy = List.of(
         new CopyParameters(3, "success", 100, COPY_ENCRYPTION_PARAM, TestRandomUtil.nextBytes(15)),
@@ -556,9 +532,10 @@ public class BackupManagerTest {
     when(remoteStorageManager.copy(eq(3), eq("badlength"), eq(300), any(), any()))
         .thenReturn(CompletableFuture.failedFuture(new InvalidLengthException("")));
 
-    final List<CopyResult> results = backupManager.copyToBackup(backupUser, toCopy)
+    final List<CopyResult> results = backupManager.copyToBackup(backupManager.getCopyQuota(backupUser, toCopy))
         .collectList().block();
 
+    assertThat(results).hasSize(3);
     assertThat(results.get(0).outcome()).isEqualTo(CopyResult.Outcome.SUCCESS);
     assertThat(results.get(1).outcome()).isEqualTo(CopyResult.Outcome.SOURCE_NOT_FOUND);
     assertThat(results.get(2).outcome()).isEqualTo(CopyResult.Outcome.SOURCE_WRONG_LENGTH);
@@ -566,7 +543,7 @@ public class BackupManagerTest {
     // usage should be rolled back after a known copy failure
     final Map<String, AttributeValue> backup = getBackupItem(backupUser);
     assertThat(AttributeValues.getLong(backup, BackupsDb.ATTR_MEDIA_BYTES_USED, -1L))
-        .isEqualTo(toCopy.get(0).destinationObjectSize());
+        .isEqualTo(toCopy.getFirst().destinationObjectSize());
     assertThat(AttributeValues.getLong(backup, BackupsDb.ATTR_MEDIA_COUNT, -1L)).isEqualTo(1L);
   }
 
@@ -574,24 +551,20 @@ public class BackupManagerTest {
   public void copyWrongCredentialType() {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID);
 
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> copy(backupUser))
-        .extracting(StatusRuntimeException::getStatus)
-        .extracting(Status::getCode)
-        .isEqualTo(Status.Code.UNAUTHENTICATED);
+    assertThatExceptionOfType(BackupWrongCredentialTypeException.class).isThrownBy(() -> copy(backupUser));
   }
 
   @Test
-  public void quotaEnforcementNoRecalculation() {
+  public void quotaEnforcementNoRecalculation() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     verifyNoInteractions(remoteStorageManager);
 
     // set the backupsDb to be out of quota at t=0
     testClock.pin(Instant.ofEpochSecond(1));
-    backupsDb.setMediaUsage(backupUser, new UsageInfo(BackupManager.MAX_TOTAL_BACKUP_MEDIA_BYTES, 1000)).join();
+    backupsDb.setMediaUsage(backupUser, new UsageInfo(MAX_TOTAL_MEDIA_BYTES, 1000)).join();
     // check still within staleness bound (t=0 + 1 day - 1 sec)
     testClock.pin(Instant.ofEpochSecond(0)
-        .plus(BackupManager.MAX_QUOTA_STALENESS)
+        .plus(backupConfiguration.maxQuotaStaleness())
         .minus(Duration.ofSeconds(1)));
 
     // Try to copy
@@ -599,11 +572,11 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void quotaEnforcementRecalculation() {
+  public void quotaEnforcementRecalculation() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     final String backupMediaPrefix = "%s/%s/".formatted(backupUser.backupDir(), backupUser.mediaDir());
 
-    final long remainingAfterRecalc = BackupManager.MAX_TOTAL_BACKUP_MEDIA_BYTES - COPY_PARAM.destinationObjectSize();
+    final long remainingAfterRecalc = MAX_TOTAL_MEDIA_BYTES - COPY_PARAM.destinationObjectSize();
 
     // on recalculation, say there's actually enough left to do the copy
     when(remoteStorageManager.calculateBytesUsed(eq(backupMediaPrefix)))
@@ -611,8 +584,8 @@ public class BackupManagerTest {
 
     // set the backupsDb to be totally out of quota at t=0
     testClock.pin(Instant.ofEpochSecond(0));
-    backupsDb.setMediaUsage(backupUser, new UsageInfo(BackupManager.MAX_TOTAL_BACKUP_MEDIA_BYTES, 1000)).join();
-    testClock.pin(Instant.ofEpochSecond(0).plus(BackupManager.MAX_QUOTA_STALENESS));
+    backupsDb.setMediaUsage(backupUser, new UsageInfo(MAX_TOTAL_MEDIA_BYTES, 1000)).join();
+    testClock.pin(Instant.ofEpochSecond(0).plus(backupConfiguration.maxQuotaStaleness()));
 
     // Should recalculate quota and copy can succeed
     assertThat(copy(backupUser).outcome()).isEqualTo(CopyResult.Outcome.SUCCESS);
@@ -620,8 +593,8 @@ public class BackupManagerTest {
     // backupsDb should have the new value
     final BackupsDb.TimestampedUsageInfo info = backupsDb.getMediaUsage(backupUser).join();
     assertThat(info.lastRecalculationTime())
-        .isEqualTo(Instant.ofEpochSecond(0).plus(BackupManager.MAX_QUOTA_STALENESS));
-    assertThat(info.usageInfo().bytesUsed()).isEqualTo(BackupManager.MAX_TOTAL_BACKUP_MEDIA_BYTES);
+        .isEqualTo(Instant.ofEpochSecond(0).plus(backupConfiguration.maxQuotaStaleness()));
+    assertThat(info.usageInfo().bytesUsed()).isEqualTo(MAX_TOTAL_MEDIA_BYTES);
     assertThat(info.usageInfo().numObjects()).isEqualTo(1001);
   }
 
@@ -629,22 +602,22 @@ public class BackupManagerTest {
   public void quotaEnforcement(
       @CartesianTest.Values(booleans = {true, false}) boolean hasSpaceBeforeRecalc,
       @CartesianTest.Values(booleans = {true, false}) boolean hasSpaceAfterRecalc,
-      @CartesianTest.Values(booleans = {true, false}) boolean doesReaclc) {
+      @CartesianTest.Values(booleans = {true, false}) boolean doesReaclc) throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     final String backupMediaPrefix = "%s/%s/".formatted(backupUser.backupDir(), backupUser.mediaDir());
 
     final long destSize = COPY_PARAM.destinationObjectSize();
     final long originalRemainingSpace =
-        BackupManager.MAX_TOTAL_BACKUP_MEDIA_BYTES - (hasSpaceBeforeRecalc ? destSize : (destSize - 1));
+        MAX_TOTAL_MEDIA_BYTES - (hasSpaceBeforeRecalc ? destSize : (destSize - 1));
     final long afterRecalcRemainingSpace =
-        BackupManager.MAX_TOTAL_BACKUP_MEDIA_BYTES - (hasSpaceAfterRecalc ? destSize : (destSize - 1));
+        MAX_TOTAL_MEDIA_BYTES - (hasSpaceAfterRecalc ? destSize : (destSize - 1));
 
     // set the backupsDb to be out of quota at t=0
     testClock.pin(Instant.ofEpochSecond(0));
     backupsDb.setMediaUsage(backupUser, new UsageInfo(originalRemainingSpace, 1000)).join();
 
     if (doesReaclc) {
-      testClock.pin(Instant.ofEpochSecond(0).plus(BackupManager.MAX_QUOTA_STALENESS).plus(Duration.ofSeconds(1)));
+      testClock.pin(Instant.ofEpochSecond(0).plus(backupConfiguration.maxQuotaStaleness()).plus(Duration.ofSeconds(1)));
       when(remoteStorageManager.calculateBytesUsed(eq(backupMediaPrefix)))
           .thenReturn(CompletableFuture.completedFuture(new UsageInfo(afterRecalcRemainingSpace, 1000)));
     }
@@ -671,7 +644,9 @@ public class BackupManagerTest {
     backupsDb.setMediaUsage(backupUser, oldUsage).join();
     when(remoteStorageManager.calculateBytesUsed(eq(backupMediaPrefix)))
         .thenReturn(CompletableFuture.completedFuture(newUsage));
-    final StoredBackupAttributes attrs = backupManager.listBackupAttributes(1, Schedulers.immediate()).single().block();
+    final StoredBackupAttributes attrs = backupManager.listBackupAttributes(1)
+        .single()
+        .blockOptional().orElseThrow();
 
     testClock.pin(Instant.ofEpochSecond(456));
     assertThat(backupManager.recalculateQuota(attrs).toCompletableFuture().join())
@@ -686,7 +661,7 @@ public class BackupManagerTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"", "cursor"})
-  public void list(final String cursorVal) {
+  public void list(final String cursorVal) throws BackupException {
     final Optional<String> cursor = Optional.of(cursorVal).filter(StringUtils::isNotBlank);
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID);
     final String backupMediaPrefix = "%s/%s/".formatted(backupUser.backupDir(), backupUser.mediaDir());
@@ -698,8 +673,7 @@ public class BackupManagerTest {
             Optional.of("newCursor")
         )));
 
-    final BackupManager.ListMediaResult result = backupManager.list(backupUser, cursor, 17)
-        .toCompletableFuture().join();
+    final BackupManager.ListMediaResult result = backupManager.list(backupUser, cursor, 17);
     assertThat(result.media()).hasSize(1);
     assertThat(result.media().getFirst().cdn()).isEqualTo(13);
     assertThat(result.media().getFirst().key()).isEqualTo(
@@ -710,7 +684,7 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void deleteEntireBackup() {
+  public void deleteEntireBackup() throws BackupException {
     final AuthenticatedBackupUser original = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID);
 
     testClock.pin(Instant.ofEpochSecond(10));
@@ -718,7 +692,7 @@ public class BackupManagerTest {
     when(svrbClient.removeData(anyString())).thenReturn(CompletableFuture.completedFuture(null));
 
     // Deleting should swap the backupDir for the user
-    backupManager.deleteEntireBackup(original).join();
+    backupManager.deleteEntireBackup(original);
     verifyNoInteractions(remoteStorageManager);
     verify(svrbClient).removeData(HexFormat.of().formatHex(BackupsDb.hashedBackupId(original.backupId())));
 
@@ -732,14 +706,15 @@ public class BackupManagerTest {
             Collections.emptyList(),
             Optional.empty()
         )));
-    backupManager.deleteEntireBackup(after).join();
+    backupManager.deleteEntireBackup(after);
     verify(remoteStorageManager, times(1))
         .list(eq(after.backupDir() + "/"), eq(Optional.empty()), anyLong());
 
     // The original prefix to expire should be flagged as requiring expiration
     final ExpiredBackup expiredBackup = backupManager
         .getExpiredBackups(1, Schedulers.immediate(), Instant.ofEpochSecond(1L))
-        .collectList().block()
+        .collectList()
+        .blockOptional().orElseThrow()
         .getFirst();
     assertThat(expiredBackup.hashedBackupId()).isEqualTo(hashedBackupId(original.backupId()));
     assertThat(expiredBackup.prefixToDelete()).isEqualTo(original.backupDir());
@@ -747,7 +722,7 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void delete() {
+  public void delete() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     final byte[] mediaId = TestRandomUtil.nextBytes(16);
     final String backupMediaKey = "%s/%s/%s".formatted(
@@ -771,15 +746,8 @@ public class BackupManagerTest {
   public void deleteWrongCredentialType() {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID);
     final byte[] mediaId = TestRandomUtil.nextBytes(16);
-    final String backupMediaKey = "%s/%s/%s".formatted(
-        backupUser.backupDir(),
-        backupUser.mediaDir(),
-        BackupManager.encodeMediaIdForCdn(mediaId));
-
-    assertThatThrownBy(() ->
-        backupManager.deleteMedia(backupUser, List.of(new BackupManager.StorageDescriptor(5, mediaId))).then().block())
-        .isInstanceOf(StatusRuntimeException.class)
-        .matches(e -> ((StatusRuntimeException) e).getStatus().getCode() == Status.UNAUTHENTICATED.getCode());
+    assertThatExceptionOfType(BackupWrongCredentialTypeException.class)
+        .isThrownBy(() -> backupManager.deleteMedia(backupUser, List.of(new BackupManager.StorageDescriptor(5, mediaId))).then().block());
   }
 
   @Test
@@ -787,19 +755,17 @@ public class BackupManagerTest {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     final BackupManager.StorageDescriptor sd = new BackupManager.StorageDescriptor(4, TestRandomUtil.nextBytes(15));
     when(remoteStorageManager.cdnNumber()).thenReturn(5);
-    assertThatThrownBy(() ->
-        backupManager.deleteMedia(backupUser, List.of(sd)).then().block())
-        .isInstanceOf(StatusRuntimeException.class)
-        .matches(e -> ((StatusRuntimeException) e).getStatus().getCode() == Status.INVALID_ARGUMENT.getCode());
+    assertThatThrownBy(() -> backupManager.deleteMedia(backupUser, List.of(sd)).then().toFuture().join())
+        .hasCauseInstanceOf(BackupInvalidArgumentException.class);
   }
 
   @Test
-  public void deleteUsageCheckpoints() throws InterruptedException {
+  public void deleteUsageCheckpoints() throws InterruptedException, BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA,
         BackupLevel.PAID);
 
     // 100 objects, each 2 bytes large
-    final List<byte[]> mediaIds = IntStream.range(0, 100).mapToObj(ig -> TestRandomUtil.nextBytes(16)).toList();
+    final List<byte[]> mediaIds = IntStream.range(0, 100).mapToObj(_ -> TestRandomUtil.nextBytes(16)).toList();
     backupsDb.setMediaUsage(backupUser, new UsageInfo(200, 100)).join();
 
     // One object is slow to delete
@@ -807,7 +773,7 @@ public class BackupManagerTest {
     final String slowMediaKey = "%s/%s/%s".formatted(
         backupUser.backupDir(),
         backupUser.mediaDir(),
-        BackupManager.encodeMediaIdForCdn(mediaIds.get(BackupManager.USAGE_CHECKPOINT_COUNT + 3)));
+        BackupManager.encodeMediaIdForCdn(mediaIds.get(backupConfiguration.usageCheckpointCount() + 3)));
 
     when(remoteStorageManager.delete(anyString())).thenReturn(CompletableFuture.completedFuture(2L));
     when(remoteStorageManager.delete(slowMediaKey)).thenReturn(slowFuture);
@@ -820,21 +786,17 @@ public class BackupManagerTest {
             .toList());
     final ArrayBlockingQueue<BackupManager.StorageDescriptor> sds = new ArrayBlockingQueue<>(100);
     final CompletableFuture<Void> future = flux.doOnNext(sds::add).then().toFuture();
-    for (int i = 0; i < BackupManager.USAGE_CHECKPOINT_COUNT; i++) {
+    for (int i = 0; i < backupConfiguration.usageCheckpointCount(); i++) {
       sds.poll(1, TimeUnit.SECONDS);
     }
 
-    assertThat(backupsDb.getMediaUsage(backupUser).join().usageInfo())
-        .isEqualTo(new UsageInfo(
-            200 - (2 * BackupManager.USAGE_CHECKPOINT_COUNT),
-            100 - BackupManager.USAGE_CHECKPOINT_COUNT));
     // We should still be waiting since we have a slow delete
     assertThat(future).isNotDone();
     // But we should checkpoint the usage periodically
     assertThat(backupsDb.getMediaUsage(backupUser).join().usageInfo())
         .isEqualTo(new UsageInfo(
-            200 - (2 * BackupManager.USAGE_CHECKPOINT_COUNT),
-            100 - BackupManager.USAGE_CHECKPOINT_COUNT));
+            200 - (2L * backupConfiguration.usageCheckpointCount()),
+            100 - backupConfiguration.usageCheckpointCount()));
 
     slowFuture.complete(2L);
     future.join();
@@ -843,7 +805,7 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void deletePartialFailure() {
+  public void deletePartialFailure() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
 
     final List<BackupManager.StorageDescriptor> descriptors = new ArrayList<>();
@@ -861,7 +823,7 @@ public class BackupManagerTest {
       // fail deletion 3, otherwise return the corresponding object's size as i
       final CompletableFuture<Long> deleteResult = i == 3
           ? CompletableFuture.failedFuture(new IOException("oh no"))
-          : CompletableFuture.completedFuture(Long.valueOf(i));
+          : CompletableFuture.completedFuture((long) i);
 
       when(remoteStorageManager.delete(backupMediaKey)).thenReturn(deleteResult);
     }
@@ -871,7 +833,8 @@ public class BackupManagerTest {
     final List<BackupManager.StorageDescriptor> deleted = backupManager
         .deleteMedia(backupUser, descriptors)
         .onErrorComplete()
-        .collectList().block();
+        .collectList()
+        .blockOptional().orElseThrow();
     // first two objects should be deleted
     assertThat(deleted.size()).isEqualTo(2);
     assertThat(backupsDb.getMediaUsage(backupUser).join().usageInfo())
@@ -880,7 +843,7 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void alreadyDeleted() {
+  public void alreadyDeleted() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
     final byte[] mediaId = TestRandomUtil.nextBytes(16);
     final String backupMediaKey = "%s/%s/%s".formatted(
@@ -900,13 +863,13 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void listExpiredBackups() {
+  public void listExpiredBackups() throws BackupException {
     final List<AuthenticatedBackupUser> backupUsers = IntStream.range(0, 10)
-        .mapToObj(i -> backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID))
+        .mapToObj(_ -> backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID))
         .toList();
     for (int i = 0; i < backupUsers.size(); i++) {
       testClock.pin(days(i));
-      backupManager.createMessageBackupUploadDescriptor(backupUsers.get(i)).join();
+      backupManager.createMessageBackupUploadDescriptor(backupUsers.get(i));
     }
 
     // set of backup-id hashes that should be expired (initially t=0)
@@ -920,7 +883,7 @@ public class BackupManagerTest {
       final List<ExpiredBackup> expired = backupManager
           .getExpiredBackups(1, Schedulers.immediate(), day)
           .collectList()
-          .block();
+          .blockOptional().orElseThrow();
 
       // all the backups tht should be expired at t=i should be returned (ones with expiration time 0,1,...i-1)
       assertThat(expired.size()).isEqualTo(expectedHashes.size());
@@ -936,16 +899,16 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void listExpiredBackupsByTier() {
+  public void listExpiredBackupsByTier() throws BackupException {
     final byte[] backupId = TestRandomUtil.nextBytes(16);
 
     // refreshed media timestamp at t=5
     testClock.pin(days(5));
-    backupManager.createMessageBackupUploadDescriptor(backupUser(backupId, BackupCredentialType.MESSAGES, BackupLevel.PAID)).join();
+    backupManager.createMessageBackupUploadDescriptor(backupUser(backupId, BackupCredentialType.MESSAGES, BackupLevel.PAID));
 
     // refreshed messages timestamp at t=6
     testClock.pin(days(6));
-    backupManager.createMessageBackupUploadDescriptor(backupUser(backupId, BackupCredentialType.MESSAGES, BackupLevel.FREE)).join();
+    backupManager.createMessageBackupUploadDescriptor(backupUser(backupId, BackupCredentialType.MESSAGES, BackupLevel.FREE));
 
     Function<Instant, List<ExpiredBackup>> getExpired = time -> backupManager
         .getExpiredBackups(1, Schedulers.immediate(), time)
@@ -964,9 +927,9 @@ public class BackupManagerTest {
 
   @ParameterizedTest
   @EnumSource(mode = EnumSource.Mode.INCLUDE, names = {"MEDIA", "ALL"})
-  public void expireBackup(ExpiredBackup.ExpirationType expirationType) {
+  public void expireBackup(ExpiredBackup.ExpirationType expirationType) throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID);
-    backupManager.createMessageBackupUploadDescriptor(backupUser).join();
+    backupManager.createMessageBackupUploadDescriptor(backupUser);
 
     final String expectedPrefixToDelete = switch (expirationType) {
       case ALL -> backupUser.backupDir();
@@ -998,11 +961,9 @@ public class BackupManagerTest {
 
     if (expirationType == ExpiredBackup.ExpirationType.ALL) {
       // should have deleted the db row for the backup
-      assertThat(CompletableFutureTestUtil.assertFailsWithCause(
-              StatusRuntimeException.class,
-              backupsDb.describeBackup(backupUser))
-          .getStatus().getCode())
-          .isEqualTo(Status.NOT_FOUND.getCode());
+      CompletableFutureTestUtil.assertFailsWithCause(
+          BackupNotFoundException.class,
+          backupsDb.describeBackup(backupUser));
     } else {
       // should have deleted all the media, but left the backup descriptor in place
       assertThatNoException().isThrownBy(() -> backupsDb.describeBackup(backupUser).join());
@@ -1010,9 +971,9 @@ public class BackupManagerTest {
   }
 
   @Test
-  public void deleteBackupPaginated() {
+  public void deleteBackupPaginated() throws BackupException {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, BackupLevel.PAID);
-    backupManager.createMessageBackupUploadDescriptor(backupUser).join();
+    backupManager.createMessageBackupUploadDescriptor(backupUser);
 
     final ExpiredBackup expiredBackup = expiredBackup(ExpiredBackup.ExpirationType.MEDIA, backupUser);
     final String mediaPrefix = expiredBackup.prefixToDelete() + "/";
@@ -1048,7 +1009,7 @@ public class BackupManagerTest {
 
   @ParameterizedTest
   @EnumSource(BackupLevel.class)
-  void svrbAuthValid(BackupLevel backupLevel) {
+  void svrbAuthValid(BackupLevel backupLevel) throws BackupException {
     testClock.pin(Instant.ofEpochSecond(123));
     final AuthenticatedBackupUser backupUser =
         backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, backupLevel);
@@ -1065,29 +1026,26 @@ public class BackupManagerTest {
     // Can't use MEDIA for svrb auth
     final AuthenticatedBackupUser backupUser =
         backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, backupLevel);
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> backupManager.generateSvrbAuth(backupUser))
-        .extracting(StatusRuntimeException::getStatus)
-        .extracting(Status::getCode)
-        .isEqualTo(Status.Code.UNAUTHENTICATED);
+    assertThatExceptionOfType(BackupWrongCredentialTypeException.class)
+        .isThrownBy(() -> backupManager.generateSvrbAuth(backupUser));
   }
 
-  private CopyResult copyError(final AuthenticatedBackupUser backupUser, Throwable copyException) {
+  private CopyResult copyError(final AuthenticatedBackupUser backupUser, Throwable copyException) throws BackupException {
     when(tusCredentialGenerator.generateUpload(any()))
         .thenReturn(new BackupUploadDescriptor(3, "def", Collections.emptyMap(), ""));
     when(remoteStorageManager.copy(eq(3), eq(COPY_PARAM.sourceKey()), eq(COPY_PARAM.sourceLength()), any(), any()))
         .thenReturn(CompletableFuture.failedFuture(copyException));
-    return backupManager.copyToBackup(backupUser, List.of(COPY_PARAM)).single().block();
+    return backupManager.copyToBackup(backupManager.getCopyQuota(backupUser, List.of(COPY_PARAM))).single().block();
   }
 
-  private CopyResult copy(final AuthenticatedBackupUser backupUser) {
+  private CopyResult copy(final AuthenticatedBackupUser backupUser) throws BackupException {
     when(tusCredentialGenerator.generateUpload(any()))
         .thenReturn(new BackupUploadDescriptor(3, "def", Collections.emptyMap(), ""));
     when(tusCredentialGenerator.generateUpload(any()))
         .thenReturn(new BackupUploadDescriptor(3, "def", Collections.emptyMap(), ""));
     when(remoteStorageManager.copy(eq(3), eq(COPY_PARAM.sourceKey()), eq(COPY_PARAM.sourceLength()), any(), any()))
         .thenReturn(CompletableFuture.completedFuture(null));
-    return backupManager.copyToBackup(backupUser, List.of(COPY_PARAM)).single().block();
+    return backupManager.copyToBackup(backupManager.getCopyQuota(backupUser, List.of(COPY_PARAM))).single().block();
   }
 
   private static ExpiredBackup expiredBackup(final ExpiredBackup.ExpirationType expirationType,
@@ -1154,7 +1112,7 @@ public class BackupManagerTest {
    * Retrieve an existing BackupUser from the database
    */
   private AuthenticatedBackupUser retrieveBackupUser(final byte[] backupId, final BackupCredentialType credentialType, final BackupLevel backupLevel) {
-    final BackupsDb.AuthenticationData authData = backupsDb.retrieveAuthenticationData(backupId).join().get();
+    final BackupsDb.AuthenticationData authData = backupsDb.retrieveAuthenticationData(backupId).join().orElseThrow();
     return new AuthenticatedBackupUser(backupId, credentialType, backupLevel, authData.backupDir(), authData.mediaDir(), null);
   }
 

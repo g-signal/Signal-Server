@@ -5,11 +5,12 @@
 
 package org.whispersystems.textsecuregcm.storage;
 
-import static com.codahale.metrics.MetricRegistry.name;
+import static org.whispersystems.textsecuregcm.metrics.MetricsUtil.name;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
+import io.github.resilience4j.reactor.retry.RetryOperator;
 import io.lettuce.core.Limit;
 import io.lettuce.core.Range;
 import io.lettuce.core.ScoredValue;
@@ -34,6 +35,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.reactivestreams.Publisher;
@@ -42,9 +44,11 @@ import org.signal.libsignal.protocol.ServiceId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.entities.MessageProtos;
+import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.metrics.MetricsUtil;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
+import org.whispersystems.textsecuregcm.util.ResilienceUtil;
 import org.whispersystems.textsecuregcm.util.Pair;
 import org.whispersystems.textsecuregcm.util.RedisClusterUtil;
 import reactor.core.observability.micrometer.Micrometer;
@@ -52,7 +56,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
-import reactor.util.retry.RetrySpec;
 
 /**
  * Manages short-term storage of messages in Redis. Messages are frequently delivered to their destination and deleted
@@ -118,6 +121,7 @@ public class MessagesCache {
   private final ExecutorService messageDeletionExecutorService;
   // messageDeletionExecutorService wrapped into a reactor Scheduler
   private final Scheduler messageDeletionScheduler;
+  private final ExperimentEnrollmentManager experimentEnrollmentManager;
 
   private final MessagesCacheInsertScript insertScript;
   private final MessagesCacheInsertSharedMultiRecipientPayloadAndViewsScript insertMrmScript;
@@ -148,6 +152,8 @@ public class MessagesCache {
   private final Counter sharedMrmDataKeyRemovedCounter = Metrics.counter(
       name(MessagesCache.class, "sharedMrmKeyRemoved"));
 
+  static final String RETRY_NAME = ResilienceUtil.name(MessagesCache.class);
+
   static final String NEXT_SLOT_TO_PERSIST_KEY = "user_queue_persist_slot";
   private static final byte[] LOCK_VALUE = "1".getBytes(StandardCharsets.UTF_8);
 
@@ -167,7 +173,9 @@ public class MessagesCache {
   public MessagesCache(final FaultTolerantRedisClusterClient redisCluster,
       final Scheduler messageDeliveryScheduler,
       final ExecutorService messageDeletionExecutorService,
-      final Clock clock)
+      final ScheduledExecutorService retryExecutor,
+      final Clock clock,
+      final ExperimentEnrollmentManager experimentEnrollmentManager)
       throws IOException {
 
     this(
@@ -175,10 +183,11 @@ public class MessagesCache {
         messageDeliveryScheduler,
         messageDeletionExecutorService,
         clock,
-        new MessagesCacheInsertScript(redisCluster),
-        new MessagesCacheInsertSharedMultiRecipientPayloadAndViewsScript(redisCluster),
+        experimentEnrollmentManager,
+        new MessagesCacheInsertScript(redisCluster, retryExecutor),
+        new MessagesCacheInsertSharedMultiRecipientPayloadAndViewsScript(redisCluster, retryExecutor),
         new MessagesCacheGetItemsScript(redisCluster),
-        new MessagesCacheRemoveByGuidScript(redisCluster),
+        new MessagesCacheRemoveByGuidScript(redisCluster, retryExecutor),
         new MessagesCacheRemoveQueueScript(redisCluster),
         new MessagesCacheGetQueuesToPersistScript(redisCluster),
         new MessagesCacheRemoveRecipientViewFromMrmDataScript(redisCluster),
@@ -190,6 +199,7 @@ public class MessagesCache {
   MessagesCache(final FaultTolerantRedisClusterClient redisCluster,
                 final Scheduler messageDeliveryScheduler,
                 final ExecutorService messageDeletionExecutorService, final Clock clock,
+                final ExperimentEnrollmentManager experimentEnrollmentManager,
                 final MessagesCacheInsertScript insertScript,
                 final MessagesCacheInsertSharedMultiRecipientPayloadAndViewsScript insertMrmScript,
                 final MessagesCacheGetItemsScript getItemsScript, final MessagesCacheRemoveByGuidScript removeByGuidScript,
@@ -204,6 +214,7 @@ public class MessagesCache {
     this.messageDeliveryScheduler = messageDeliveryScheduler;
     this.messageDeletionExecutorService = messageDeletionExecutorService;
     this.messageDeletionScheduler = Schedulers.fromExecutorService(messageDeletionExecutorService, "messageDeletion");
+    this.experimentEnrollmentManager = experimentEnrollmentManager;
 
     this.insertScript = insertScript;
     this.insertMrmScript = insertMrmScript;
@@ -224,7 +235,8 @@ public class MessagesCache {
     final Timer.Sample sample = Timer.start();
 
     return insertScript.executeAsync(destinationAccountIdentifier, destinationDeviceId, messageWithGuid)
-        .whenComplete((ignored, throwable) -> sample.stop(insertTimer));
+        .toCompletableFuture()
+        .whenComplete((_, _) -> sample.stop(insertTimer));
   }
 
   public CompletableFuture<byte[]> insertSharedMultiRecipientMessagePayload(
@@ -235,8 +247,9 @@ public class MessagesCache {
     final byte[] sharedMrmKey = getSharedMrmKey(UUID.randomUUID());
 
     return insertMrmScript.executeAsync(sharedMrmKey, sealedSenderMultiRecipientMessage)
-        .thenApply(ignored -> sharedMrmKey)
-        .whenComplete((ignored, throwable) -> sample.stop(insertSharedMrmPayloadTimer));
+        .thenApply(_ -> sharedMrmKey)
+        .toCompletableFuture()
+        .whenComplete((_, _) -> sample.stop(insertSharedMrmPayloadTimer));
   }
 
   public CompletableFuture<Optional<RemovedMessage>> remove(final UUID destinationUuid, final byte destinationDevice,
@@ -263,7 +276,7 @@ public class MessagesCache {
               removedMessages.add(RemovedMessage.fromEnvelope(envelope));
               if (envelope.hasSharedMrmKey()) {
                 serviceIdentifierToMrmKeys.computeIfAbsent(
-                        ServiceIdentifier.valueOf(envelope.getDestinationServiceId()), ignored -> new ArrayList<>())
+                        ServiceIdentifier.valueOf(envelope.getDestinationServiceId()), _ -> new ArrayList<>())
                     .add(envelope.getSharedMrmKey().toByteArray());
               }
             } catch (final InvalidProtocolBufferException e) {
@@ -275,7 +288,9 @@ public class MessagesCache {
               (serviceId, keysToUpdate) -> removeRecipientViewFromMrmData(keysToUpdate, serviceId, destinationDevice));
 
           return removedMessages;
-        }, messageDeletionExecutorService).whenComplete((removedMessages, throwable) -> {
+        }, messageDeletionExecutorService)
+        .toCompletableFuture()
+        .whenComplete((removedMessages, _) -> {
           if (removedMessages != null) {
             removeMessageCounter.increment(removedMessages.size());
           }
@@ -428,10 +443,11 @@ public class MessagesCache {
         // the message might be addressed to the account's PNI, so use the service ID from the envelope
         ServiceIdentifier.valueOf(mrmMessage.getDestinationServiceId()), destinationDevice);
 
-    return Mono.from(redisCluster.withBinaryClusterReactive(
+    return Mono.from(redisCluster.withBinaryCluster(
             conn -> conn.reactive().hmget(key, "data".getBytes(StandardCharsets.UTF_8), sharedMrmViewKey)
                 .collectList()
                 .publishOn(messageDeliveryScheduler)))
+        .transformDeferred(RetryOperator.of(ResilienceUtil.getGeneralRedisRetry(RETRY_NAME)))
         .<MessageProtos.Envelope>handle((mrmDataAndView, sink) -> {
           try {
             assert mrmDataAndView.size() == 2;
@@ -517,7 +533,6 @@ public class MessagesCache {
       long messageId, int pageSize) {
 
     return getItemsScript.execute(destinationUuid, destinationDevice, pageSize, messageId)
-        .retryWhen(RetrySpec.backoff(4, Duration.ofSeconds(1)).maxBackoff(Duration.ofSeconds(4)))
         .map(queueItems -> {
           logger.trace("Processing page: {}", messageId);
 
@@ -647,7 +662,7 @@ public class MessagesCache {
 
               if (message.hasSharedMrmKey()) {
                 serviceIdentifierToMrmKeys.computeIfAbsent(ServiceIdentifier.valueOf(message.getDestinationServiceId()),
-                        ignored -> new ArrayList<>())
+                        _ -> new ArrayList<>())
                     .add(message.getSharedMrmKey().toByteArray());
               }
             } catch (final InvalidProtocolBufferException e) {
@@ -669,7 +684,7 @@ public class MessagesCache {
     try {
       return redisCluster.withBinaryCluster(
           connection -> connection.getPartitions().getPartitionBySlot(slot).getUri().getHost());
-    } catch (Throwable ignored) {
+    } catch (final Throwable _) {
       return "unknown";
     }
   }
@@ -750,9 +765,9 @@ public class MessagesCache {
     return Byte.parseByte(queueName.substring(queueName.lastIndexOf("::") + 2, queueName.lastIndexOf('}')));
   }
 
-  private static MessageProtos.Envelope parseEnvelope(final byte[] envelopeBytes)
+  private MessageProtos.Envelope parseEnvelope(final byte[] envelopeBytes)
       throws InvalidProtocolBufferException {
 
-    return EnvelopeUtil.expand(MessageProtos.Envelope.parseFrom(envelopeBytes));
+    return EnvelopeUtil.expand(MessageProtos.Envelope.parseFrom(envelopeBytes), experimentEnrollmentManager);
   }
 }

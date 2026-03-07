@@ -10,15 +10,7 @@ logging:
       threshold: ALL
       timeZone: UTC
       target: stdout
-
-metrics:
-  reporters:
-    - type: console
-      frequency: 10 seconds
-      tags:
-        - "env:staging"
-        - "service:chat"
-  reportOnStop: true
+    - type: otlp
 
 tlsKeyStore:
   password: secret://tlsKeyStore.password
@@ -37,7 +29,7 @@ stripe:
 
 braintree:
   merchantId: unset
-  publicKey: unset
+  publicKey: secret://braintree.publicKey
   privateKey: secret://braintree.privateKey
   environment: unset
   graphqlUrl: unset
@@ -56,7 +48,10 @@ braintree:
       }
 
 googlePlayBilling:
-  credentialsJson: secret://googlePlayBilling.credentialsJson
+  credentialsJson: |
+    {
+      "credential": "configuration"
+    }
   packageName: package.name
   applicationName: test
   productIdToLevel: {}
@@ -116,8 +111,6 @@ dynamoDbTables:
     tableName: Example_Keys
   ecSignedPreKeys:
     tableName: Example_EC_Signed_Pre_Keys
-  pqKeys:
-    tableName: Example_PQ_Keys
   pagedPqKeys:
     tableName: Example_PQ_Paged_Keys
   pqLastResortKeys:
@@ -280,22 +273,16 @@ cdn3StorageManager:
     2: gcs
     3: r2   #tus
 
-# ok
-dogstatsd:
-  environment: dev
-  host: 127.0.0.1
-
-# ok
 openTelemetry:
   enabled: false
   environment: dev
   url: http://127.0.0.1:4318/
 
-#
 unidentifiedDelivery:
   certificate: CgIIAQ==
   privateKey: secret://unidentifiedDelivery.privateKey
   expiresDays: 7
+  embedSigner: true
 
 shortCode:
   baseUrl: https://example.com/shortcodes/
@@ -426,6 +413,10 @@ oneTimeDonations:
 registrationService:
   host: registration.example.com
   port: 443
+  credentialConfigurationJson: |
+    {
+      "example": "example"
+    }
   identityTokenAudience: https://registration.example.com
   collationKeySalt: secret://registrationService.collationKeySalt
   registrationCaCertificateEnabled: true
@@ -545,15 +536,6 @@ turn:
 linkDevice:
   secret: secret://linkDevice.secret
 
-noiseTunnel:
-  webSocketPort: 8444
-  directPort: 8445
-  tlsKeyStoreFile: /path/to/file.p12
-  tlsKeyStoreEntryAlias: example.com
-  tlsKeyStorePassword: secret://noiseTunnel.tlsKeyStorePassword
-  noiseStaticPrivateKey: secret://noiseTunnel.noiseStaticPrivateKey
-  recognizedProxySecret: secret://noiseTunnel.recognizedProxySecret
-
 externalRequestFilter:
   grpcMethods:
     - com.example.grpc.ExampleService/exampleMethod
@@ -564,3 +546,26 @@ externalRequestFilter:
 
 idlePrimaryDeviceReminder:
   minIdleDuration: P30D
+
+grpc:
+  port: 50051
+
+asnTable:
+  s3Region: a-region
+  s3Bucket: a-bucket
+  objectKey: asn.tsv
+  maxSize: 100000
+  refreshInterval: PT10S
+
+callQualitySurvey:
+  pubSubPublisher:
+    project: example-project
+    topic: example-topic
+    credentialConfiguration: |
+      {
+        "credential": "configuration"
+      }
+
+hlrLookup:
+  apiKey: secret://hlrLookup.apiKey
+  apiSecret: secret://hlrLookup.apiSecret

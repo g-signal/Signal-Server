@@ -24,31 +24,6 @@ awsCredentialsProvider:
   accessKeyId: secret://aws.accessKeyId
   secretAccessKey: secret://aws.secretAccessKey
 
-metrics:
-  reporters:
-    - type: signal-datadog
-      frequency: 10 seconds
-      tags:
-        - "env:test"
-        - "service:chat"
-      udpTransport:
-        statsdHost: localhost
-        port: 8125
-      excludesAttributes:
-        - m1_rate
-        - m5_rate
-        - m15_rate
-        - mean_rate
-        - stddev
-      useRegexFilters: true
-      excludes:
-        - ^.+\.total$
-        - ^.+\.request\.filtering$
-        - ^.+\.response\.filtering$
-        - ^executor\..+$
-        - ^lettuce\..+$
-  reportOnStop: true
-
 tlsKeyStore:
   password: secret://tlsKeyStore.password
 
@@ -66,7 +41,7 @@ stripe:
 
 braintree:
   merchantId: unset
-  publicKey: unset
+  publicKey: secret://braintree.publicKey
   privateKey: secret://braintree.privateKey
   environment: sandbox
   graphqlUrl: unset
@@ -81,7 +56,16 @@ braintree:
     type: stub
 
 googlePlayBilling:
-  credentialsJson: secret://googlePlayBilling.credentialsJson
+  credentialsJson: |
+    {
+      "type": "external_account",
+      "credential_source": {
+        "file": "/tmp/my-token"
+      },
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+      "audience": "//iam.googleapis.com/abc",
+      "token_url": "https://sts.googleapis.com/v1/token"
+    }
   packageName: package.name
   applicationName: test
   productIdToLevel: {}
@@ -143,8 +127,6 @@ dynamoDbTables:
     tableName: keys_test
   ecSignedPreKeys:
     tableName: repeated_use_signed_ec_pre_keys_test
-  pqKeys:
-    tableName: pq_keys_test
   pagedPqKeys:
     tableName: paged_pq_keys_test
   pqLastResortKeys:
@@ -303,11 +285,6 @@ cdn3StorageManager:
     2: gcs
     3: r2
 
-dogstatsd:
-  type: nowait
-  environment: dev
-  host: 127.0.0.1
-
 openTelemetry:
   enabled: false
   environment: dev
@@ -315,9 +292,10 @@ openTelemetry:
   url: http://127.0.0.1:4318/
 
 unidentifiedDelivery:
-  certificate: CgIIAQ==
+  certificate: CikI14bfmgcSIQWEfA0sN1I082XmYJVRh6NzWg92E9FgnTpqTYxTrqpaIhJA4LnrrN/Dqign95JLaXeE0cJeRMoF3UM+GjjcY4LrJzDUGcqaJQsb6dWpRj5h79Z4F3epG4PJe4RNAUIG4oKXhQ==
   privateKey: secret://unidentifiedDelivery.privateKey
   expiresDays: 7
+  embedSigner: true
 
 shortCode:
   baseUrl: https://example.com/shortcodes/
@@ -535,12 +513,6 @@ turn:
 linkDevice:
   secret: secret://linkDevice.secret
 
-noiseTunnel:
-  webSocketPort: 8444
-  directPort: 8445
-  noiseStaticPrivateKey: secret://noiseTunnel.noiseStaticPrivateKey
-  recognizedProxySecret: secret://noiseTunnel.recognizedProxySecret
-
 externalRequestFilter:
   grpcMethods:
     - com.example.grpc.ExampleService/exampleMethod
@@ -551,3 +523,24 @@ externalRequestFilter:
 
 idlePrimaryDeviceReminder:
   minIdleDuration: P30D
+
+grpc:
+  port: 50051
+
+grpcAllowList:
+  enableAll: true
+
+asnTable:
+  s3Region: a-region
+  s3Bucket: a-bucket
+  objectKey: asn.tsv
+  maxSize: 100000
+  refreshInterval: PT10S
+
+callQualitySurvey:
+  pubSubPublisher:
+    type: stub
+
+hlrLookup:
+  apiKey: secret://hlrLookup.apiKey
+  apiSecret: secret://hlrLookup.apiSecret

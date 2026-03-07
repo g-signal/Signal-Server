@@ -37,7 +37,6 @@ import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.entities.DeviceInfo;
-import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.redis.RedisClusterExtension;
 import org.whispersystems.textsecuregcm.redis.RedisServerExtension;
@@ -63,7 +62,6 @@ public class AddRemoveDeviceIntegrationTest {
       DynamoDbExtensionSchema.Tables.PNI_ASSIGNMENTS,
       DynamoDbExtensionSchema.Tables.USERNAMES,
       DynamoDbExtensionSchema.Tables.EC_KEYS,
-      DynamoDbExtensionSchema.Tables.PQ_KEYS,
       DynamoDbExtensionSchema.Tables.PAGED_PQ_KEYS,
       DynamoDbExtensionSchema.Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS,
       DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS);
@@ -78,7 +76,7 @@ public class AddRemoveDeviceIntegrationTest {
   static final S3LocalStackExtension S3_EXTENSION = new S3LocalStackExtension("testbucket");
 
   private ExecutorService accountLockExecutor;
-  private ScheduledExecutorService messagePollExecutor;
+  private ScheduledExecutorService scheduledExecutorService;
 
   private KeysManager keysManager;
   private ClientPublicKeysManager clientPublicKeysManager;
@@ -99,7 +97,6 @@ public class AddRemoveDeviceIntegrationTest {
     final DynamoDbAsyncClient dynamoDbAsyncClient = DYNAMO_DB_EXTENSION.getDynamoDbAsyncClient();
     keysManager = new KeysManager(
         new SingleUseECPreKeyStore(dynamoDbAsyncClient, DynamoDbExtensionSchema.Tables.EC_KEYS.tableName()),
-        new SingleUseKEMPreKeyStore(dynamoDbAsyncClient, DynamoDbExtensionSchema.Tables.PQ_KEYS.tableName()),
         new PagedSingleUseKEMPreKeyStore(dynamoDbAsyncClient,
             S3_EXTENSION.getS3Client(),
             DynamoDbExtensionSchema.Tables.PAGED_PQ_KEYS.tableName(),
@@ -107,8 +104,7 @@ public class AddRemoveDeviceIntegrationTest {
         new RepeatedUseECSignedPreKeyStore(dynamoDbAsyncClient,
             DynamoDbExtensionSchema.Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS.tableName()),
         new RepeatedUseKEMSignedPreKeyStore(dynamoDbAsyncClient,
-            DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS.tableName()),
-        mock(ExperimentEnrollmentManager.class));
+            DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS.tableName()));
 
     final ClientPublicKeys clientPublicKeys = new ClientPublicKeys(DYNAMO_DB_EXTENSION.getDynamoDbAsyncClient(),
         DynamoDbExtensionSchema.Tables.CLIENT_PUBLIC_KEYS.tableName());
@@ -125,7 +121,7 @@ public class AddRemoveDeviceIntegrationTest {
         DynamoDbExtensionSchema.Tables.USED_LINK_DEVICE_TOKENS.tableName());
 
     accountLockExecutor = Executors.newSingleThreadExecutor();
-    messagePollExecutor = mock(ScheduledExecutorService.class);
+    scheduledExecutorService = mock(ScheduledExecutorService.class);
 
     final AccountLockManager accountLockManager = new AccountLockManager(DYNAMO_DB_EXTENSION.getDynamoDbClient(),
         DynamoDbExtensionSchema.Tables.DELETED_ACCOUNTS_LOCK.tableName());
@@ -174,7 +170,8 @@ public class AddRemoveDeviceIntegrationTest {
         mock(RegistrationRecoveryPasswordsManager.class),
         clientPublicKeysManager,
         accountLockExecutor,
-        messagePollExecutor,
+        scheduledExecutorService,
+        scheduledExecutorService,
         clock,
         "link-device-secret".getBytes(StandardCharsets.UTF_8),
         dynamicConfigurationManager);
@@ -473,7 +470,6 @@ public class AddRemoveDeviceIntegrationTest {
     final DeviceInfo deviceInfo = maybeDeviceInfo.get();
 
     assertEquals(updatedAccountAndDevice.second().getId(), deviceInfo.id());
-    assertEquals(updatedAccountAndDevice.second().getCreated(), deviceInfo.created());
     assertEquals(updatedAccountAndDevice.second().getRegistrationId(IdentityType.ACI), deviceInfo.registrationId());
     assertNotNull(deviceInfo.createdAtCiphertext());
   }
@@ -522,7 +518,6 @@ public class AddRemoveDeviceIntegrationTest {
     final DeviceInfo deviceInfo = maybeDeviceInfo.get();
 
     assertEquals(updatedAccountAndDevice.second().getId(), deviceInfo.id());
-    assertEquals(updatedAccountAndDevice.second().getCreated(), deviceInfo.created());
     assertEquals(updatedAccountAndDevice.second().getRegistrationId(IdentityType.ACI), deviceInfo.registrationId());
     assertNotNull(deviceInfo.createdAtCiphertext());
   }
@@ -547,13 +542,12 @@ public class AddRemoveDeviceIntegrationTest {
 
   @ParameterizedTest
   @CsvSource({
-      "10_000,1000,,false",     // no pending messages
-      "10_000,1000,1000,true",  // pending message at device creation
-      "10_000,1000,5999,true",  // pending message right before device creation + fudge factor
-      "10_000,1000,6000,false", // pending message at device creation + fudge factor
-      "3000,5000,4000,false",   // pending message after current time but before device creation
+      "10_000,,false",         // no pending messages
+      "10_000,9999,true",      // pending message right before now
+      "10_000,10_000,false",   // pending message at now
+      "10_000,10_001,false",   // pending message after now
   })
-  void waitForMessageFetch(long currentTime, long deviceCreation, Long oldestMessage, boolean shouldWait)
+  void waitForMessageFetch(long currentTime, Long oldestMessage, boolean shouldWait)
       throws InterruptedException {
     final String number = PhoneNumberUtil.getInstance().format(
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
@@ -565,7 +559,6 @@ public class AddRemoveDeviceIntegrationTest {
     final String linkDeviceToken = accountsManager.generateLinkDeviceToken(UUID.randomUUID());
     final String linkDeviceTokenIdentifier = AccountsManager.getLinkDeviceTokenIdentifier(linkDeviceToken);
 
-    clock.pin(Instant.ofEpochMilli(deviceCreation));
     final Pair<Account, Device> updatedAccountAndDevice =
         accountsManager.addDevice(account, new DeviceSpec(
                     "device-name".getBytes(StandardCharsets.UTF_8),
@@ -583,8 +576,6 @@ public class AddRemoveDeviceIntegrationTest {
                     KeysHelper.signedKEMPreKey(4, pniKeyPair)),
                 linkDeviceToken)
             .join();
-
-    assertEquals(updatedAccountAndDevice.second().getCreated(), deviceCreation);
 
     when(messagesManager.getEarliestUndeliveredTimestampForDevice(account.getUuid(), account.getPrimaryDevice()))
         .thenReturn(CompletableFuture.completedFuture(Optional.ofNullable(oldestMessage).map(Instant::ofEpochMilli)));
@@ -637,7 +628,7 @@ public class AddRemoveDeviceIntegrationTest {
         .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
     clock.pin(Instant.ofEpochMilli(10_000));
     // Run any scheduled job right away
-    when(messagePollExecutor.schedule(any(Runnable.class), anyLong(), any())).thenAnswer(x -> {
+    when(scheduledExecutorService.schedule(any(Runnable.class), anyLong(), any())).thenAnswer(x -> {
       x.getArgument(0, Runnable.class).run();
       return null;
     });

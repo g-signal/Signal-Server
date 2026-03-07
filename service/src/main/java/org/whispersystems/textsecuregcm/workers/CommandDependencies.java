@@ -5,26 +5,25 @@
 
 package org.whispersystems.textsecuregcm.workers;
 
-import static com.codahale.metrics.MetricRegistry.name;
-
-import com.codahale.metrics.MetricRegistry;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import io.dropwizard.core.setup.Environment;
 import io.lettuce.core.resource.ClientResources;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.security.InvalidKeyException;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.UnrecoverableKeyException;
-import java.security.cert.CertificateException;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.time.Clock;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import org.signal.libsignal.zkgroup.GenericServerSecretParams;
 import org.signal.libsignal.zkgroup.InvalidInputException;
+import org.signal.libsignal.zkgroup.ServerSecretParams;
+import org.signal.libsignal.zkgroup.receipts.ServerZkReceiptOperations;
 import org.whispersystems.textsecuregcm.WhisperServerConfiguration;
-import org.whispersystems.textsecuregcm.WhisperServerService;
+import org.whispersystems.textsecuregcm.WhisperServerService.ExecutorServiceBuilder;
+import org.whispersystems.textsecuregcm.WhisperServerService.ScheduledExecutorServiceBuilder;
 import org.whispersystems.textsecuregcm.attachments.TusAttachmentGenerator;
 import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.auth.ExternalServiceCredentialsGenerator;
@@ -38,8 +37,8 @@ import org.whispersystems.textsecuregcm.controllers.SecureStorageController;
 import org.whispersystems.textsecuregcm.controllers.SecureValueRecovery2Controller;
 import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.experiment.PushNotificationExperimentSamples;
-import org.whispersystems.textsecuregcm.grpc.net.GrpcClientConnectionManager;
 import org.whispersystems.textsecuregcm.limits.RateLimiters;
+import org.whispersystems.textsecuregcm.metrics.MetricsUtil;
 import org.whispersystems.textsecuregcm.metrics.MicrometerAwsSdkMetricPublisher;
 import org.whispersystems.textsecuregcm.push.APNSender;
 import org.whispersystems.textsecuregcm.push.FcmSender;
@@ -73,8 +72,13 @@ import org.whispersystems.textsecuregcm.storage.RepeatedUseKEMSignedPreKeyStore;
 import org.whispersystems.textsecuregcm.storage.ReportMessageDynamoDb;
 import org.whispersystems.textsecuregcm.storage.ReportMessageManager;
 import org.whispersystems.textsecuregcm.storage.SingleUseECPreKeyStore;
-import org.whispersystems.textsecuregcm.storage.SingleUseKEMPreKeyStore;
+import org.whispersystems.textsecuregcm.storage.SubscriptionManager;
+import org.whispersystems.textsecuregcm.storage.Subscriptions;
+import org.whispersystems.textsecuregcm.subscriptions.AppleAppStoreClient;
+import org.whispersystems.textsecuregcm.subscriptions.AppleAppStoreManager;
+import org.whispersystems.textsecuregcm.subscriptions.GooglePlayBillingManager;
 import org.whispersystems.textsecuregcm.util.ManagedAwsCrt;
+import org.whispersystems.textsecuregcm.util.ManagedExecutors;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -86,7 +90,7 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 /**
  * Construct utilities commonly used by worker commands
  */
-record CommandDependencies(
+public record CommandDependencies(
     AccountsManager accountsManager,
     ProfilesManager profilesManager,
     ReportMessageManager reportMessageManager,
@@ -103,6 +107,9 @@ record CommandDependencies(
     ClientResources.Builder redisClusterClientResourcesBuilder,
     BackupManager backupManager,
     IssuedReceiptsManager issuedReceiptsManager,
+    GooglePlayBillingManager googlePlayBillingManager,
+    AppleAppStoreManager appleAppStoreManager,
+    SubscriptionManager subscriptionManager,
     DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager,
     DynamoDbAsyncClient dynamoDbAsyncClient,
     PhoneNumberIdentifiers phoneNumberIdentifiers,
@@ -112,15 +119,17 @@ record CommandDependencies(
       final String name,
       final Environment environment,
       final WhisperServerConfiguration configuration)
-      throws IOException, CertificateException, NoSuchAlgorithmException, InvalidKeyException, UnrecoverableKeyException, KeyStoreException {
+      throws IOException, GeneralSecurityException, InvalidInputException {
     Clock clock = Clock.systemUTC();
+
+    MetricsUtil.configureLogging(configuration, environment);
 
     environment.getObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     final AwsCredentialsProvider awsCredentialsProvider = configuration.getAwsCredentialsConfiguration().build();
 
-    ScheduledExecutorService dynamicConfigurationExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(WhisperServerService.class, "dynamicConfiguration-%d")).threads(1).build();
+    ScheduledExecutorService dynamicConfigurationExecutor = ScheduledExecutorServiceBuilder.of(environment, "dynamicConfiguration")
+        .threads(1).build();
 
     DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager =
         new DynamicConfigurationManager<>(
@@ -140,37 +149,35 @@ record CommandDependencies(
 
     Scheduler messageDeliveryScheduler = Schedulers.fromExecutorService(
         environment.lifecycle().executorService("messageDelivery").minThreads(4).maxThreads(4).build());
-    ExecutorService messageDeletionExecutor = environment.lifecycle()
-        .executorService(name(WhisperServerService.class, "messageDeletion-%d")).minThreads(4).maxThreads(4).build();
-    ExecutorService secureValueRecoveryServiceExecutor = environment.lifecycle()
-        .executorService(name(WhisperServerService.class, "secureValueRecoveryService-%d")).maxThreads(8).minThreads(8).build();
-    ExecutorService storageServiceExecutor = environment.lifecycle()
-        .executorService(name(WhisperServerService.class, "storageService-%d")).maxThreads(8).minThreads(8).build();
-    ExecutorService accountLockExecutor = environment.lifecycle()
-        .executorService(name(WhisperServerService.class, "accountLock-%d")).minThreads(8).maxThreads(8).build();
-    ExecutorService remoteStorageHttpExecutor = environment.lifecycle()
-        .executorService(name(WhisperServerService.class, "remoteStorage-%d"))
+    ExecutorService messageDeletionExecutor = ExecutorServiceBuilder.of(environment, "messageDeletion")
+        .minThreads(4).maxThreads(4).build();
+    ExecutorService secureValueRecoveryServiceExecutor = ExecutorServiceBuilder.of(environment, "secureValueRecoveryService")
+        .maxThreads(8).minThreads(8).build();
+    ExecutorService storageServiceExecutor = ExecutorServiceBuilder.of(environment, "storageService")
+        .maxThreads(8).minThreads(8).build();
+    ExecutorService accountLockExecutor = ExecutorServiceBuilder.of(environment, "accountLock")
+        .minThreads(8).maxThreads(8).build();
+    ExecutorService remoteStorageHttpExecutor = ExecutorServiceBuilder.of(environment, "remoteStorage")
+
         .minThreads(0).maxThreads(Integer.MAX_VALUE).workQueue(new SynchronousQueue<>())
         .keepAliveTime(io.dropwizard.util.Duration.seconds(60L)).build();
-    ExecutorService apnSenderExecutor = environment.lifecycle().executorService(name(WhisperServerService.class, "apnSender-%d"))
+    ExecutorService apnSenderExecutor = ExecutorServiceBuilder.of(environment, "apnSender")
         .maxThreads(1).minThreads(1).build();
-    ExecutorService fcmSenderExecutor = environment.lifecycle().executorService(name(WhisperServerService.class, "fcmSender-%d"))
+    ExecutorService fcmSenderExecutor = ExecutorServiceBuilder.of(environment, "fcmSender")
         .maxThreads(16).minThreads(16).build();
-    ExecutorService clientEventExecutor = environment.lifecycle()
-        .virtualExecutorService(name(WhisperServerService.class, "clientEvent-%d"));
-    ExecutorService asyncOperationQueueingExecutor = environment.lifecycle()
-        .executorService(name(WhisperServerService.class, "asyncOperationQueueing-%d")).minThreads(1).maxThreads(1).build();
-    ExecutorService disconnectionRequestListenerExecutor = environment.lifecycle()
-        .virtualExecutorService(name(WhisperServerService.class, "disconnectionRequest-%d"));
+    ExecutorService clientEventExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
+      "clientEvent", configuration.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor(), environment);
+    ExecutorService asyncOperationQueueingExecutor = ExecutorServiceBuilder.of(environment, "asyncOperationQueueing")
+        .minThreads(1).maxThreads(1).build();
+    ExecutorService disconnectionRequestListenerExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
+        "disconnectionRequest",
+        configuration.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor(),
+        environment);
 
-    ScheduledExecutorService secureValueRecoveryServiceRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(WhisperServerService.class, "secureValueRecoveryServiceRetry-%d")).threads(1).build();
-    ScheduledExecutorService remoteStorageRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(WhisperServerService.class, "remoteStorageRetry-%d")).threads(1).build();
-    ScheduledExecutorService storageServiceRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(WhisperServerService.class, "storageServiceRetry-%d")).threads(1).build();
-    ScheduledExecutorService messagePollExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(WhisperServerService.class, "messagePollExecutor-%d")).threads(1).build();
+    final ScheduledExecutorService messagePollExecutor = ScheduledExecutorServiceBuilder.of(environment, "messagePollExecutor")
+      .threads(1).build();
+    final ScheduledExecutorService retryExecutor = ScheduledExecutorServiceBuilder.of(environment, "retry")
+      .threads(1).build();
 
     ExternalServiceCredentialsGenerator storageCredentialsGenerator = SecureStorageController.credentialsGenerator(
         configuration.getSecureStorageServiceConfiguration());
@@ -179,8 +186,10 @@ record CommandDependencies(
     ExternalServiceCredentialsGenerator secureValueRecoveryBCredentialsGenerator =
         SecureValueRecoveryBCredentialsGeneratorFactory.svrbCredentialsGenerator(configuration.getSvrbConfiguration());
 
-    final ExecutorService awsSdkMetricsExecutor = environment.lifecycle()
-        .virtualExecutorService(MetricRegistry.name(WhisperServerService.class, "awsSdkMetrics-%d"));
+    final ExecutorService awsSdkMetricsExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
+        "awsSdkMetrics",
+        configuration.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor(),
+        environment);
 
     DynamoDbAsyncClient dynamoDbAsyncClient = configuration.getDynamoDbClientConfiguration()
         .buildAsyncClient(awsCredentialsProvider, new MicrometerAwsSdkMetricPublisher(awsSdkMetricsExecutor, "dynamoDbAsyncCommand"));
@@ -228,17 +237,15 @@ record CommandDependencies(
         configuration.getPagedSingleUseKEMPreKeyStore().bucket());
     KeysManager keys = new KeysManager(
         new SingleUseECPreKeyStore(dynamoDbAsyncClient, configuration.getDynamoDbTables().getEcKeys().getTableName()),
-        new SingleUseKEMPreKeyStore(dynamoDbAsyncClient, configuration.getDynamoDbTables().getKemKeys().getTableName()),
         pagedSingleUseKEMPreKeyStore,
         new RepeatedUseECSignedPreKeyStore(dynamoDbAsyncClient,
             configuration.getDynamoDbTables().getEcSignedPreKeys().getTableName()),
         new RepeatedUseKEMSignedPreKeyStore(dynamoDbAsyncClient,
-            configuration.getDynamoDbTables().getKemLastResortKeys().getTableName()),
-        experimentEnrollmentManager);
+            configuration.getDynamoDbTables().getKemLastResortKeys().getTableName()));
     MessagesDynamoDb messagesDynamoDb = new MessagesDynamoDb(dynamoDbClient, dynamoDbAsyncClient,
         configuration.getDynamoDbTables().getMessages().getTableName(),
         configuration.getDynamoDbTables().getMessages().getExpiration(),
-        messageDeletionExecutor);
+        messageDeletionExecutor, experimentEnrollmentManager);
     FaultTolerantRedisClusterClient messagesCluster = configuration.getMessageCacheConfiguration()
         .getRedisClusterConfiguration().build("messages", redisClientResourcesBuilder);
     FaultTolerantRedisClusterClient rateLimitersCluster = configuration.getRateLimitersCluster().build("rate_limiters",
@@ -246,29 +253,31 @@ record CommandDependencies(
     SecureValueRecoveryClient secureValueRecovery2Client = new SecureValueRecoveryClient(
         secureValueRecovery2CredentialsGenerator,
         secureValueRecoveryServiceExecutor,
-        secureValueRecoveryServiceRetryExecutor,
+        retryExecutor,
         configuration.getSvr2Configuration(),
         () -> dynamicConfigurationManager.getConfiguration().getSvr2StatusCodesToIgnoreForAccountDeletion());
     SecureValueRecoveryClient secureValueRecoveryBClient = new SecureValueRecoveryClient(
         secureValueRecoveryBCredentialsGenerator,
         secureValueRecoveryServiceExecutor,
-        secureValueRecoveryServiceRetryExecutor,
+        retryExecutor,
         configuration.getSvrbConfiguration(),
         () -> dynamicConfigurationManager.getConfiguration().getSvrbStatusCodesToIgnoreForAccountDeletion());
     SecureStorageClient secureStorageClient = new SecureStorageClient(storageCredentialsGenerator,
-        storageServiceExecutor, storageServiceRetryExecutor, configuration.getSecureStorageServiceConfiguration());
-    GrpcClientConnectionManager grpcClientConnectionManager = new GrpcClientConnectionManager();
-    DisconnectionRequestManager disconnectionRequestManager = new DisconnectionRequestManager(pubsubClient, grpcClientConnectionManager, disconnectionRequestListenerExecutor);
+        storageServiceExecutor, retryExecutor, configuration.getSecureStorageServiceConfiguration());
+    DisconnectionRequestManager disconnectionRequestManager = new DisconnectionRequestManager(pubsubClient,
+        disconnectionRequestListenerExecutor, retryExecutor);
     MessagesCache messagesCache = new MessagesCache(messagesCluster,
-        messageDeliveryScheduler, messageDeletionExecutor, Clock.systemUTC());
-    ProfilesManager profilesManager = new ProfilesManager(profiles, cacheCluster, asyncCdnS3Client,
+        messageDeliveryScheduler, messageDeletionExecutor, retryExecutor, Clock.systemUTC(), experimentEnrollmentManager);
+    ProfilesManager profilesManager = new ProfilesManager(profiles, cacheCluster, retryExecutor, asyncCdnS3Client,
         configuration.getCdnConfiguration().bucket());
     ReportMessageDynamoDb reportMessageDynamoDb = new ReportMessageDynamoDb(dynamoDbClient, dynamoDbAsyncClient,
         configuration.getDynamoDbTables().getReportMessage().getTableName(),
         configuration.getReportMessageConfiguration().getReportTtl());
     ReportMessageManager reportMessageManager = new ReportMessageManager(reportMessageDynamoDb, rateLimitersCluster,
         configuration.getReportMessageConfiguration().getCounterTtl());
-    MessagesManager messagesManager = new MessagesManager(messagesDynamoDb, messagesCache,
+    RedisMessageAvailabilityManager redisMessageAvailabilityManager =
+        new RedisMessageAvailabilityManager(messagesCluster, clientEventExecutor, asyncOperationQueueingExecutor);
+    MessagesManager messagesManager = new MessagesManager(messagesDynamoDb, messagesCache, redisMessageAvailabilityManager,
         reportMessageManager, messageDeletionExecutor, Clock.systemUTC());
     AccountLockManager accountLockManager = new AccountLockManager(dynamoDbClient,
         configuration.getDynamoDbTables().getDeletedAccountsLock().getTableName());
@@ -280,8 +289,9 @@ record CommandDependencies(
         pubsubClient, accountLockManager, keys, messagesManager, profilesManager,
         secureStorageClient, secureValueRecovery2Client, disconnectionRequestManager,
         registrationRecoveryPasswordsManager, clientPublicKeysManager, accountLockExecutor, messagePollExecutor,
-        clock, configuration.getLinkDeviceSecretConfiguration().secret().value(), dynamicConfigurationManager);
-    RateLimiters rateLimiters = RateLimiters.create(dynamicConfigurationManager, rateLimitersCluster);
+        retryExecutor, clock, configuration.getLinkDeviceSecretConfiguration().secret().value(),
+        dynamicConfigurationManager);
+    RateLimiters rateLimiters = RateLimiters.create(dynamicConfigurationManager, rateLimitersCluster, retryExecutor);
     final BackupsDb backupsDb =
         new BackupsDb(dynamoDbAsyncClient, configuration.getDynamoDbTables().getBackups().getTableName(), clock);
     final GenericServerSecretParams backupsGenericZkSecretParams;
@@ -299,11 +309,12 @@ record CommandDependencies(
         new Cdn3BackupCredentialGenerator(configuration.getTus()),
         new Cdn3RemoteStorageManager(
             remoteStorageHttpExecutor,
-            remoteStorageRetryExecutor,
+            retryExecutor,
             configuration.getCdn3StorageManagerConfiguration()),
         secureValueRecoveryBCredentialsGenerator,
         secureValueRecoveryBClient,
-        clock);
+        clock,
+        dynamicConfigurationManager);
 
     final IssuedReceiptsManager issuedReceiptsManager = new IssuedReceiptsManager(
         configuration.getDynamoDbTables().getIssuedReceipts().getTableName(),
@@ -312,19 +323,41 @@ record CommandDependencies(
         configuration.getDynamoDbTables().getIssuedReceipts().getGenerator(),
         configuration.getDynamoDbTables().getIssuedReceipts().getmaxIssuedReceiptsPerPaymentId());
 
+    final ServerSecretParams zkSecretParams = new ServerSecretParams(configuration.getZkConfig().serverSecret().value());
+    final ServerZkReceiptOperations zkReceiptOperations = new ServerZkReceiptOperations(zkSecretParams);
+    GooglePlayBillingManager googlePlayBillingManager = new GooglePlayBillingManager(
+        new ByteArrayInputStream(configuration.getGooglePlayBilling().credentialsJson().getBytes(StandardCharsets.UTF_8)),
+        configuration.getGooglePlayBilling().packageName(),
+        configuration.getGooglePlayBilling().applicationName(),
+        configuration.getGooglePlayBilling().productIdToLevel());
+    AppleAppStoreManager appleAppStoreManager = new AppleAppStoreManager(
+        new AppleAppStoreClient(
+            configuration.getAppleAppStore().env(),
+            configuration.getAppleAppStore().bundleId(),
+            configuration.getAppleAppStore().appAppleId(),
+            configuration.getAppleAppStore().issuerId(),
+            configuration.getAppleAppStore().keyId(),
+            configuration.getAppleAppStore().encodedKey().value(),
+            configuration.getAppleAppStore().appleRootCerts(),
+            configuration.getAppleAppStore().retryConfigurationName()),
+        configuration.getAppleAppStore().subscriptionGroupId(),
+        configuration.getAppleAppStore().productIdToLevel());
+    final SubscriptionManager subscriptionManager = new SubscriptionManager(
+        new Subscriptions(configuration.getDynamoDbTables().getSubscriptions().getTableName(), dynamoDbAsyncClient),
+        List.of(googlePlayBillingManager, appleAppStoreManager),
+        zkReceiptOperations,
+        issuedReceiptsManager);
+
     APNSender apnSender = new APNSender(apnSenderExecutor, configuration.getApnConfiguration());
     FcmSender fcmSender = new FcmSender(fcmSenderExecutor, configuration.getFcmConfiguration().credentials().value());
     PushNotificationScheduler pushNotificationScheduler = new PushNotificationScheduler(pushSchedulerCluster,
-        apnSender, fcmSender, accountsManager, 0, 0);
+        apnSender, fcmSender, accountsManager, 0, 0, retryExecutor);
     PushNotificationManager pushNotificationManager = new PushNotificationManager(accountsManager,
         apnSender, fcmSender, pushNotificationScheduler);
     PushNotificationExperimentSamples pushNotificationExperimentSamples =
         new PushNotificationExperimentSamples(dynamoDbAsyncClient,
             configuration.getDynamoDbTables().getPushNotificationExperimentSamples().getTableName(),
             Clock.systemUTC());
-
-    RedisMessageAvailabilityManager redisMessageAvailabilityManager =
-        new RedisMessageAvailabilityManager(messagesCluster, clientEventExecutor, asyncOperationQueueingExecutor);
 
     final DynamoDbRecoveryManager dynamoDbRecoveryManager =
         new DynamoDbRecoveryManager(accounts, phoneNumberIdentifiers);
@@ -351,6 +384,9 @@ record CommandDependencies(
         redisClientResourcesBuilder,
         backupManager,
         issuedReceiptsManager,
+        googlePlayBillingManager,
+        appleAppStoreManager,
+        subscriptionManager,
         dynamicConfigurationManager,
         dynamoDbAsyncClient,
         phoneNumberIdentifiers,

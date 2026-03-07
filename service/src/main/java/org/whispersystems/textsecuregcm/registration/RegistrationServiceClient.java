@@ -23,10 +23,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.apache.commons.lang3.StringUtils;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.signal.registration.rpc.CheckVerificationCodeRequest;
 import org.signal.registration.rpc.CreateRegistrationSessionRequest;
 import org.signal.registration.rpc.GetRegistrationSessionMetadataRequest;
@@ -109,7 +109,12 @@ public class RegistrationServiceClient implements Managed {
   }
 
   public CompletableFuture<RegistrationServiceSession> createRegistrationSession(
-      final Phonenumber.PhoneNumber phoneNumber, final String sourceHost, final boolean accountExistsWithPhoneNumber, final Duration timeout) {
+      final Phonenumber.PhoneNumber phoneNumber,
+      final String sourceHost,
+      final boolean accountExistsWithPhoneNumber,
+      @Nullable final String clientMcc,
+      @Nullable final String clientMnc,
+      final Duration timeout) {
 
     final long e164 = Long.parseLong(
         PhoneNumberUtil.getInstance().format(phoneNumber, PhoneNumberUtil.PhoneNumberFormat.E164).substring(1));
@@ -120,6 +125,8 @@ public class RegistrationServiceClient implements Managed {
             .setE164(e164)
             .setAccountExistsWithE164(accountExistsWithPhoneNumber)
             .setRateLimitCollationKey(rateLimitCollationKey)
+            .setMcc(clientMcc != null ? clientMcc : "")
+            .setMnc(clientMnc != null ? clientMnc : "")
             .build()), callbackExecutor)
         .thenApply(response -> switch (response.getResponseCase()) {
           case SESSION_METADATA -> buildSessionResponseFromMetadata(response.getSessionMetadata());

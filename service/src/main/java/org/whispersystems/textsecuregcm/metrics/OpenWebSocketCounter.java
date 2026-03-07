@@ -83,7 +83,7 @@ public class OpenWebSocketCounter {
 
     Metrics.counter(newConnectionCounterName, tagsWithClientPlatform).increment();
 
-    context.addWebsocketClosedListener((context1, statusCode, reason) -> {
+    context.addWebsocketClosedListener((_, statusCode, _) -> {
       sample.stop(Timer.builder(durationTimerName)
           .publishPercentileHistogram(true)
           .tags(tagsWithClientPlatform)

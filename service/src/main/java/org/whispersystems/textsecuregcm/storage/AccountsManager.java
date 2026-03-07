@@ -5,7 +5,7 @@
 package org.whispersystems.textsecuregcm.storage;
 
 
-import static com.codahale.metrics.MetricRegistry.name;
+import static org.whispersystems.textsecuregcm.metrics.MetricsUtil.name;
 import static java.util.Objects.requireNonNull;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.dropwizard.lifecycle.Managed;
+import io.lettuce.core.RedisCommandTimeoutException;
 import io.lettuce.core.RedisException;
 import io.lettuce.core.SetArgs;
 import io.lettuce.core.cluster.api.sync.RedisAdvancedClusterCommands;
@@ -36,7 +37,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -50,7 +50,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -87,6 +86,7 @@ import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryC
 import org.whispersystems.textsecuregcm.util.ExceptionUtils;
 import org.whispersystems.textsecuregcm.util.Pair;
 import org.whispersystems.textsecuregcm.util.RegistrationIdValidator;
+import org.whispersystems.textsecuregcm.util.ResilienceUtil;
 import org.whispersystems.textsecuregcm.util.SystemMapper;
 import org.whispersystems.textsecuregcm.util.Util;
 import reactor.core.publisher.Flux;
@@ -109,12 +109,16 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   private static final Timer redisUuidGetTimer = Metrics.timer(name(AccountsManager.class, "redisUuidGet"));
   private static final Timer redisDeleteTimer = Metrics.timer(name(AccountsManager.class, "redisDelete"));
 
-  private static final String CREATE_COUNTER_NAME       = name(AccountsManager.class, "createCounter");
-  private static final String DELETE_COUNTER_NAME       = name(AccountsManager.class, "deleteCounter");
-  private static final String COUNTRY_CODE_TAG_NAME     = "country";
-  private static final String DELETION_REASON_TAG_NAME  = "reason";
-  private static final String TIMESTAMP_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME = name(AccountsManager.class, "timestampRedisKeyCounter");
-  private static final String REGISTRATION_ID_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME = name(AccountsManager.class,"registrationIdRedisKeyCounter");
+  private static final String CREATE_COUNTER_NAME = name(AccountsManager.class, "createCounter");
+  private static final String DELETE_COUNTER_NAME = name(AccountsManager.class, "deleteCounter");
+  private static final String COUNTRY_CODE_TAG_NAME = "country";
+  private static final String DELETION_REASON_TAG_NAME = "reason";
+  private static final String REGISTRATION_ID_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME =
+      name(AccountsManager.class, "registrationIdRedisKeyCounter");
+
+  private static final String RETRY_NAME = ResilienceUtil.name(AccountsManager.class);
+
+  private static final Duration SUBSCRIBE_RETRY_DELAY = Duration.ofSeconds(5);
 
   private static final Logger logger = LoggerFactory.getLogger(AccountsManager.class);
 
@@ -133,6 +137,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   private final ClientPublicKeysManager clientPublicKeysManager;
   private final Executor accountLockExecutor;
   private final ScheduledExecutorService messagesPollExecutor;
+  private final ScheduledExecutorService retryExecutor;
   private final Clock clock;
   private final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager;
 
@@ -168,7 +173,6 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       .writer(SystemMapper.excludingField(Account.class, List.of("uuid")));
 
   private static final Duration MESSAGE_POLL_INTERVAL = Duration.ofSeconds(1);
-  private static final Duration MAX_SERVER_CLOCK_DRIFT = Duration.ofSeconds(5);
 
   // An account that's used at least daily will get reset in the cache at least once per day when its "last seen"
   // timestamp updates; expiring entries after two days will help clear out "zombie" cache entries that are read
@@ -198,14 +202,8 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     }
   }
 
-  private interface DeviceIdentifier {}
-
-  private record TimestampDeviceIdentifier(UUID accountIdentifier, byte deviceId, Instant deviceCreationTimestamp)
-      implements DeviceIdentifier {
-  }
-
-  private record RegistrationIdDeviceIdentifier(UUID accountIdentifier, byte deviceId,
-                                                int registrationId) implements DeviceIdentifier {
+  private record DeviceIdentifier(UUID accountIdentifier, byte deviceId,
+                                  int registrationId) {
   }
 
   public AccountsManager(final Accounts accounts,
@@ -222,7 +220,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       final RegistrationRecoveryPasswordsManager registrationRecoveryPasswordsManager,
       final ClientPublicKeysManager clientPublicKeysManager,
       final Executor accountLockExecutor,
-      final ScheduledExecutorService messagesPollExecutor,
+      final ScheduledExecutorService messagesPollExecutor, final ScheduledExecutorService retryExecutor,
       final Clock clock,
       final byte[] linkDeviceSecret,
       final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager) {
@@ -241,6 +239,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     this.clientPublicKeysManager = clientPublicKeysManager;
     this.accountLockExecutor = accountLockExecutor;
     this.messagesPollExecutor = messagesPollExecutor;
+    this.retryExecutor = retryExecutor;
     this.clock = requireNonNull(clock);
     this.dynamicConfigurationManager = dynamicConfigurationManager;
 
@@ -260,8 +259,27 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   public void start() {
     pubSubConnection.usePubSubConnection(connection -> {
       connection.addListener(this);
-      connection.sync().psubscribe(LINKED_DEVICE_KEYSPACE_PATTERN, TRANSFER_ARCHIVE_KEYSPACE_PATTERN,
-          RESTORE_ACCOUNT_REQUEST_KEYSPACE_PATTERN);
+
+      boolean subscribed = false;
+
+      // Loop indefinitely until we establish a subscription. We don't want to fail immediately if there's a temporary
+      // Redis connectivity issue, since that would derail the whole startup process and likely lead to unnecessary pod
+      // churn, which might make things worse. If we never establish a connection, readiness probes will eventually fail
+      // and terminate the pods.
+      do {
+        try {
+          connection.sync().psubscribe(LINKED_DEVICE_KEYSPACE_PATTERN, TRANSFER_ARCHIVE_KEYSPACE_PATTERN,
+              RESTORE_ACCOUNT_REQUEST_KEYSPACE_PATTERN);
+
+          subscribed = true;
+        } catch (final RedisCommandTimeoutException e) {
+          try {
+            Thread.sleep(SUBSCRIBE_RETRY_DELAY);
+          } catch (final InterruptedException ex) {
+            throw new RuntimeException(ex);
+          }
+        }
+      } while (!subscribed);
     });
   }
 
@@ -403,23 +421,28 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
     redisSet(account);
 
+    final boolean rrpCreated = accountAttributes.recoveryPassword().map(registrationRecoveryPassword ->
+            registrationRecoveryPasswordsManager
+                .store(account.getIdentifier(IdentityType.PNI), registrationRecoveryPassword)
+                .join())
+        .orElse(false);
+
+
     Tags tags = Tags.of(UserAgentTagUtil.getPlatformTag(userAgent),
         Tag.of("type", accountCreationType),
         Tag.of("hasPushToken", String.valueOf(
             primaryDeviceSpec.apnRegistrationId().isPresent() || primaryDeviceSpec.gcmRegistrationId()
                 .isPresent())),
-        Tag.of("pushTokenType", pushTokenType));
+        Tag.of("pushTokenType", pushTokenType),
+        Tag.of("hasRecoveryPassword", String.valueOf(accountAttributes.recoveryPassword().isPresent())));
 
     if (StringUtils.isNotBlank(previousPushTokenType)) {
       tags = tags.and(Tag.of("previousPushTokenType", previousPushTokenType));
     }
-
+    if (accountAttributes.recoveryPassword().isPresent()) {
+      tags = tags.and(Tag.of("recoveryPasswordOutcome", rrpCreated ? "created" : "updated"));
+    }
     Metrics.counter(CREATE_COUNTER_NAME, tags).increment();
-
-    accountAttributes.recoveryPassword().ifPresent(registrationRecoveryPassword ->
-        registrationRecoveryPasswordsManager.store(account.getIdentifier(IdentityType.PNI),
-            registrationRecoveryPassword));
-
     return account;
   }
 
@@ -484,7 +507,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
           return CompletableFuture.failedFuture(throwable);
         })
-        .whenComplete((updatedAccountAndDevice, throwable) -> {
+        .whenComplete((updatedAccountAndDevice, _) -> {
           if (updatedAccountAndDevice != null) {
             final String key = getLinkedDeviceKey(getLinkDeviceTokenIdentifier(linkDeviceToken));
             final String deviceInfoJson;
@@ -495,9 +518,10 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
               throw new UncheckedIOException(e);
             }
 
-            pubSubRedisClient.withConnection(connection ->
-                connection.async().set(key, deviceInfoJson, SetArgs.Builder.ex(RECENTLY_ADDED_DEVICE_TTL)))
-                .whenComplete((ignored, pubSubThrowable) -> {
+            ResilienceUtil.getGeneralRedisRetry(RETRY_NAME)
+                .executeCompletionStage(retryExecutor, () -> pubSubRedisClient.withConnection(connection ->
+                    connection.async().set(key, deviceInfoJson, SetArgs.Builder.ex(RECENTLY_ADDED_DEVICE_TTL))))
+                .whenComplete((_, pubSubThrowable) -> {
                   if (pubSubThrowable != null) {
                     logger.warn("Failed to record recently-created device", pubSubThrowable);
                   }
@@ -743,7 +767,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     return updateWithRetries(
         account,
         a -> {
-          setPniKeys(account, pniIdentityKey, pniRegistrationIds);
+          setPniKeys(a, pniIdentityKey, pniRegistrationIds);
           return true;
         },
         a -> accounts.changeNumber(a, targetNumber, targetPhoneNumberIdentifier, maybeDisplacedUuid, keyWriteItems),
@@ -1009,7 +1033,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
               MAX_UPDATE_ATTEMPTS);
         })
         .thenCompose(updatedAccount -> redisSetAsync(updatedAccount).thenApply(ignored -> updatedAccount))
-        .whenComplete((ignored, throwable) -> timerSample.stop(updateTimer));
+        .whenComplete((_, _) -> timerSample.stop(updateTimer));
   }
 
   private Account updateWithRetries(Account account,
@@ -1291,7 +1315,11 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       Optional<Account> account = resolveFromRedis.get();
       if (account.isEmpty()) {
         account = resolveFromAccounts.get();
-        account.ifPresent(this::redisSet);
+        try {
+          account.ifPresent(this::redisSet);
+        } catch (RedisException e) {
+          logger.warn("Failed to cache retrieved account", e);
+        }
       }
       return account;
     });
@@ -1306,12 +1334,17 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
     return resolveFromRedis.get()
         .thenCompose(maybeAccountFromRedis -> maybeAccountFromRedis
-            .map(accountFromRedis -> CompletableFuture.completedFuture(maybeAccountFromRedis))
+            .map(_ -> CompletableFuture.completedFuture(maybeAccountFromRedis))
             .orElseGet(() -> resolveFromAccounts.get()
                 .thenCompose(maybeAccountFromAccounts -> maybeAccountFromAccounts
-                    .map(account -> redisSetAsync(account).thenApply(ignored -> maybeAccountFromAccounts))
+                    .map(account -> redisSetAsync(account)
+                        .exceptionally(ExceptionUtils.exceptionallyHandler(RedisException.class, e -> {
+                          logger.warn("Failed to cache retrieved account", e);
+                          return null;
+                        }))
+                        .thenApply(ignored -> maybeAccountFromAccounts))
                     .orElseGet(() -> CompletableFuture.completedFuture(maybeAccountFromAccounts)))))
-        .whenComplete((ignored, throwable) -> sample.stop(overallTimer));
+        .whenComplete((_, _) -> sample.stop(overallTimer));
   }
 
   private Optional<Account> redisGetBySecondaryKey(final String secondaryKey, final Timer timer) {
@@ -1324,7 +1357,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       logger.warn("Deserialization error", e);
       return Optional.empty();
     } catch (RedisException e) {
-      logger.warn("Redis failure", e);
+      logger.warn("Failed fetching account from cache by secondary key", e);
       return Optional.empty();
     }
     });
@@ -1345,7 +1378,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
           logger.warn("Failed to retrieve account from Redis", throwable);
           return Optional.empty();
         })
-        .whenComplete((ignored, throwable) -> sample.stop(timer))
+        .whenComplete((_, _) -> sample.stop(timer))
         .toCompletableFuture();
   }
 
@@ -1356,7 +1389,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
         return parseAccountJson(json, uuid);
       } catch (final RedisException e) {
-        logger.warn("Redis failure", e);
+        logger.warn("Failed to retrieve account from cache", e);
         return Optional.empty();
       }
     });
@@ -1399,10 +1432,11 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   }
 
   private void redisDelete(final Account account) {
-    redisDeleteTimer.record(() ->
-        cacheCluster.useCluster(connection ->
-            connection.sync().del(getAccountMapKey(account.getPhoneNumberIdentifier().toString()),
-                getAccountEntityKey(account.getUuid()))));
+    ResilienceUtil.getGeneralRedisRetry(RETRY_NAME).executeRunnable(() ->
+        redisDeleteTimer.record(() ->
+            cacheCluster.useCluster(connection ->
+                connection.sync().del(getAccountMapKey(account.getPhoneNumberIdentifier().toString()),
+                    getAccountEntityKey(account.getUuid())))));
   }
 
   private CompletableFuture<Void> redisDeleteAsync(final Account account) {
@@ -1413,10 +1447,11 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
         getAccountEntityKey(account.getUuid())
     };
 
-    return cacheCluster.withCluster(connection -> connection.async().del(keysToDelete))
+    return ResilienceUtil.getGeneralRedisRetry(RETRY_NAME).executeCompletionStage(retryExecutor,
+            () -> cacheCluster.withCluster(connection -> connection.async().del(keysToDelete))
+                .thenRun(Util.NOOP))
         .toCompletableFuture()
-        .whenComplete((ignoredResult, ignoredException) -> sample.stop(redisDeleteTimer))
-        .thenRun(Util.NOOP);
+        .whenComplete((_, _) -> sample.stop(redisDeleteTimer));
   }
 
   public CompletableFuture<Optional<DeviceInfo>> waitForNewLinkedDevice(
@@ -1439,21 +1474,14 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
         linkDeviceTokenIdentifier, getLinkedDeviceKey(linkDeviceTokenIdentifier), timeout, this::handleDeviceAdded);
 
     return deviceAdded.thenCompose(maybeDeviceInfo -> maybeDeviceInfo.map(deviceInfo -> {
-          // The device finished linking, we now want to make sure the client has fetched messages that could
-          // have come in before the device's mailbox was set up.
+          // The device finished linking, we now want to make sure the primary client has fetched messages that could
+          // have come in before the linked device's mailbox was set up. This avoids a race where the linked device
+          // misses out on messages that were sent before its mailbox was set up but received by the primary *after*
+          // creating its backup for the linked device.
 
-          // A worst case estimate of the wall clock time at which the linked device was added to the account record
-          Instant deviceLinked = Instant.ofEpochMilli(deviceInfo.created()).plus(MAX_SERVER_CLOCK_DRIFT);
-
-          Instant now = clock.instant();
-
-          // We know at `now` the device finished linking, so if we waited for all the messages before now it would be
-          // sufficient. However, now might be much later that the device was linked, so we don't want to force
-          // the client to wait for messages that are past our worst case estimate of when the device was linked
-          Instant messageEpoch = Collections.min(List.of(deviceLinked, now));
-
-          // We assume that any message with a timestamp after the messageEpoch made it into the linked device's queues
-          return waitForPreLinkMessagesToBeFetched(accountIdentifier, linkingDevice, deviceInfo, messageEpoch, deadline);
+          // We know the device finished linking at the current time, so waiting for all messages
+          // before now is sufficient.
+          return waitForPreLinkMessagesToBeFetched(accountIdentifier, linkingDevice, deviceInfo, clock.instant(), deadline);
         })
         .orElseGet(() -> CompletableFuture.completedFuture(maybeDeviceInfo)));
   }
@@ -1517,69 +1545,31 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   }
 
   public CompletableFuture<Optional<TransferArchiveResult>> waitForTransferArchive(final Account account, final Device device, final Duration timeout) {
-    final DeviceIdentifier timestampDeviceIdentifier = new TimestampDeviceIdentifier(account.getIdentifier(IdentityType.ACI), device.getId(), Instant.ofEpochMilli(device.getCreated()));
-    final String timestampTransferArchiveKey = getTimestampTransferArchiveKey(account.getIdentifier(IdentityType.ACI), device.getId(), Instant.ofEpochMilli(device.getCreated()));
-    logger.info("waitForTransferArchive, timestampTransferArchiveKey:"+timestampTransferArchiveKey);
-
-    final DeviceIdentifier registrationIdDeviceIdentifier = new RegistrationIdDeviceIdentifier(account.getIdentifier(IdentityType.ACI), device.getId(), device.getRegistrationId(IdentityType.ACI));
+    final DeviceIdentifier deviceIdentifier = new DeviceIdentifier(account.getIdentifier(IdentityType.ACI), device.getId(), device.getRegistrationId(IdentityType.ACI));
     final String registrationIdTransferArchiveKey = getRegistrationIdTransferArchiveKey(account.getIdentifier(IdentityType.ACI), device.getId(), device.getRegistrationId(IdentityType.ACI));
-    logger.info("waitForTransferArchive, registrationIdTransferArchiveKey:"+registrationIdTransferArchiveKey);
 
-    final CompletableFuture<Optional<TransferArchiveResult>> timestampFuture = waitForPubSubKey(waitForTransferArchiveFuturesByDeviceIdentifier,
-        timestampDeviceIdentifier,
-        timestampTransferArchiveKey,
-        timeout,
-        this::handleTransferArchiveAdded);
-
-    final CompletableFuture<Optional<TransferArchiveResult>> registrationIdFuture = waitForPubSubKey(waitForTransferArchiveFuturesByDeviceIdentifier,
-        registrationIdDeviceIdentifier,
+    return waitForPubSubKey(waitForTransferArchiveFuturesByDeviceIdentifier,
+        deviceIdentifier,
         registrationIdTransferArchiveKey,
         timeout,
         this::handleTransferArchiveAdded);
-    return firstSuccessfulTransferArchiveFuture(List.of(timestampFuture, registrationIdFuture));
-  }
-
-  @VisibleForTesting
-  static CompletableFuture<Optional<TransferArchiveResult>> firstSuccessfulTransferArchiveFuture(
-      final List<CompletableFuture<Optional<TransferArchiveResult>>> futures) {
-    final CompletableFuture<Optional<TransferArchiveResult>> result = new CompletableFuture<>();
-    final AtomicInteger remaining = new AtomicInteger(futures.size());
-
-    for (CompletableFuture<Optional<TransferArchiveResult>> future : futures) {
-      future.whenComplete((value, _) -> {
-        if (value.isPresent()) {
-          result.complete(value);
-        } else if (remaining.decrementAndGet() == 0) {
-          result.complete(Optional.empty());
-        }
-      });
-    }
-
-    return result;
   }
 
   public CompletableFuture<Void> recordTransferArchiveUpload(final Account account,
       final byte destinationDeviceId,
-      @SuppressWarnings("OptionalUsedAsFieldOrParameterType") final Optional<Instant> destinationDeviceCreationTimestamp,
-      @SuppressWarnings("OptionalUsedAsFieldOrParameterType") final Optional<Integer> maybeRegistrationId,
+      final int registrationId,
       final TransferArchiveResult transferArchiveResult) {
     try {
       final String transferArchiveJson = SystemMapper.jsonMapper().writeValueAsString(transferArchiveResult);
 
-      return pubSubRedisClient.withConnection(connection -> {
-        final String key = destinationDeviceCreationTimestamp
-            .map(timestamp -> getTimestampTransferArchiveKey(account.getIdentifier(IdentityType.ACI), destinationDeviceId, timestamp))
-            .orElseGet(() -> maybeRegistrationId
-                .map(registrationId -> getRegistrationIdTransferArchiveKey(account.getIdentifier(IdentityType.ACI), destinationDeviceId, registrationId))
-                // We validate the request object so this should never happen
-                .orElseThrow(() -> new AssertionError("No creation timestamp or registration ID provided")));
+      final String key = getRegistrationIdTransferArchiveKey(account.getIdentifier(IdentityType.ACI), destinationDeviceId, registrationId);
 
-        logger.info("recordTransferArchiveUpload key:" +key);
-        return connection.async()
-            .set(key, transferArchiveJson, SetArgs.Builder.ex(RECENTLY_ADDED_TRANSFER_ARCHIVE_TTL))
-            .thenRun(Util.NOOP)
-            .toCompletableFuture();
-      });
+      return ResilienceUtil.getGeneralRedisRetry(RETRY_NAME)
+          .executeCompletionStage(retryExecutor, () -> pubSubRedisClient.withConnection(connection -> connection.async()
+                  .set(key, transferArchiveJson, SetArgs.Builder.ex(RECENTLY_ADDED_TRANSFER_ARCHIVE_TTL)))
+              .toCompletableFuture())
+          .thenRun(Util.NOOP)
+          .toCompletableFuture();
     } catch (final JsonProcessingException e) {
       // This should never happen for well-defined objects we control
       throw new UncheckedIOException(e);
@@ -1593,16 +1583,6 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       logger.error("Could not parse transfer archive json", e);
       future.completeExceptionally(e);
     }
-  }
-
-  private static String getTimestampTransferArchiveKey(final UUID accountIdentifier,
-      final byte destinationDeviceId,
-      final Instant destinationDeviceCreationTimestamp) {
-    Metrics.counter(TIMESTAMP_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME).increment();
-
-    return TRANSFER_ARCHIVE_PREFIX + accountIdentifier.toString() +
-        ":" + destinationDeviceId +
-        ":" + destinationDeviceCreationTimestamp.toEpochMilli();
   }
 
   private static String getRegistrationIdTransferArchiveKey(final UUID accountIdentifier,
@@ -1635,8 +1615,10 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       throw new UncheckedIOException(e);
     }
 
-    return pubSubRedisClient.withConnection(connection ->
-            connection.async().set(key, requestJson, SetArgs.Builder.ex(RESTORE_ACCOUNT_REQUEST_TTL)))
+    return ResilienceUtil.getGeneralRedisRetry(RETRY_NAME)
+        .executeCompletionStage(retryExecutor, () -> pubSubRedisClient.withConnection(connection ->
+                connection.async().set(key, requestJson, SetArgs.Builder.ex(RESTORE_ACCOUNT_REQUEST_TTL)))
+            .toCompletableFuture())
         .thenRun(Util.NOOP)
         .toCompletableFuture();
   }
@@ -1663,7 +1645,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     final CompletableFuture<Optional<T>> future = new CompletableFuture<>();
 
     future.completeOnTimeout(Optional.empty(), TimeUnit.MILLISECONDS.convert(timeout), TimeUnit.MILLISECONDS)
-        .whenComplete((maybeBackup, throwable) -> futureMap.remove(mapKey, future));
+        .whenComplete((_, _) -> futureMap.remove(mapKey, future));
 
     {
       final CompletableFuture<Optional<T>> displacedFuture = futureMap.put(mapKey, future);
@@ -1705,8 +1687,9 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       final String[] deviceIdentifierComponents =
           channel.substring(TRANSFER_ARCHIVE_KEYSPACE_PATTERN.length() - 1).split(":", 4);
 
-      if (deviceIdentifierComponents.length != 3 && deviceIdentifierComponents.length != 4) {
-        logger.error("Could not parse device identifier; unexpected component count");
+      if (deviceIdentifierComponents.length != 4) {
+        logger.error("Could not parse device identifier; unexpected component count: {}",
+            deviceIdentifierComponents.length);
         return;
       }
 
@@ -1716,24 +1699,16 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
         final UUID accountIdentifier = UUID.fromString(deviceIdentifierComponents[0]);
         final byte deviceId = Byte.parseByte(deviceIdentifierComponents[1]);
 
-        if (deviceIdentifierComponents.length == 3) {
-          // Parse the old transfer archive Redis key format
-          final Instant deviceCreationTimestamp = Instant.ofEpochMilli(Long.parseLong(deviceIdentifierComponents[2]));
-
-          deviceIdentifier = new TimestampDeviceIdentifier(accountIdentifier, deviceId, deviceCreationTimestamp);
-          transferArchiveKey = getTimestampTransferArchiveKey(accountIdentifier, deviceId, deviceCreationTimestamp);
-        } else {
-          final String maybeRegistrationIdPattern = deviceIdentifierComponents[2];
-          if (!maybeRegistrationIdPattern.equals(TRANSFER_ARCHIVE_REGISTRATION_ID_PATTERN)) {
-            throw new IllegalArgumentException("Could not parse Redis key with pattern " + maybeRegistrationIdPattern);
-          }
-          final int registrationId = Integer.parseInt(deviceIdentifierComponents[3]);
-          if (!RegistrationIdValidator.validRegistrationId(registrationId)) {
-            throw new IllegalArgumentException("Invalid registration ID: " + registrationId);
-          }
-          deviceIdentifier = new RegistrationIdDeviceIdentifier(accountIdentifier, deviceId, registrationId);
-          transferArchiveKey = getRegistrationIdTransferArchiveKey(accountIdentifier, deviceId, registrationId);
+        final String registrationIdPattern = deviceIdentifierComponents[2];
+        if (!registrationIdPattern.equals(TRANSFER_ARCHIVE_REGISTRATION_ID_PATTERN)) {
+          throw new IllegalArgumentException("Could not parse Redis key with pattern " + registrationIdPattern);
         }
+        final int registrationId = Integer.parseInt(deviceIdentifierComponents[3]);
+        if (!RegistrationIdValidator.validRegistrationId(registrationId)) {
+          throw new IllegalArgumentException("Invalid registration ID: " + registrationId);
+        }
+        deviceIdentifier = new DeviceIdentifier(accountIdentifier, deviceId, registrationId);
+        transferArchiveKey = getRegistrationIdTransferArchiveKey(accountIdentifier, deviceId, registrationId);
 
         Optional.ofNullable(waitForTransferArchiveFuturesByDeviceIdentifier.remove(deviceIdentifier))
             .ifPresent(future -> pubSubRedisClient.withConnection(connection -> connection.async().get(transferArchiveKey))

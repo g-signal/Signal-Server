@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -199,7 +198,6 @@ class MessagesAnonymousGrpcServiceTest extends
           .setServerTimestamp(CLOCK.millis())
           .setEphemeral(ephemeral)
           .setUrgent(urgent)
-          .setStory(false)
           .setContent(ByteString.copyFrom(payload));
 
       if (includeReportSpamToken) {
@@ -329,7 +327,7 @@ class MessagesAnonymousGrpcServiceTest extends
 
       final Duration retryDuration = Duration.ofHours(7);
 
-      doThrow(new RateLimitExceededException(retryDuration)).when(rateLimiter).validate(eq(serviceIdentifier.uuid()), anyInt());
+      doThrow(new RateLimitExceededException(retryDuration)).when(rateLimiter).validate(eq(serviceIdentifier.uuid()), anyLong());
 
       final Map<Byte, IndividualRecipientMessageBundle.Message> messages =
           Map.of(deviceId, IndividualRecipientMessageBundle.Message.newBuilder()

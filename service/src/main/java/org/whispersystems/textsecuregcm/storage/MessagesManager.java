@@ -28,7 +28,6 @@ import org.reactivestreams.Publisher;
 import org.signal.libsignal.protocol.SealedSenderMultiRecipientMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.whispersystems.textsecuregcm.entities.MessageProtos;
 import org.whispersystems.textsecuregcm.entities.MessageProtos.Envelope;
 import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
@@ -57,6 +56,7 @@ public class MessagesManager {
 
   private final MessagesDynamoDb messagesDynamoDb;
   private final MessagesCache messagesCache;
+  private final RedisMessageAvailabilityManager redisMessageAvailabilityManager;
   private final ReportMessageManager reportMessageManager;
   private final ExecutorService messageDeletionExecutor;
   private final Clock clock;
@@ -64,12 +64,14 @@ public class MessagesManager {
   public MessagesManager(
       final MessagesDynamoDb messagesDynamoDb,
       final MessagesCache messagesCache,
+      final RedisMessageAvailabilityManager redisMessageAvailabilityManager,
       final ReportMessageManager reportMessageManager,
       final ExecutorService messageDeletionExecutor,
       final Clock clock) {
 
     this.messagesDynamoDb = messagesDynamoDb;
     this.messagesCache = messagesCache;
+    this.redisMessageAvailabilityManager = redisMessageAvailabilityManager;
     this.reportMessageManager = reportMessageManager;
     this.messageDeletionExecutor = messageDeletionExecutor;
     this.clock = clock;
@@ -142,15 +144,20 @@ public class MessagesManager {
 
     return insertSharedMultiRecipientMessagePayload(multiRecipientMessage)
         .thenCompose(sharedMrmKey -> {
-          final Envelope prototypeMessage = Envelope.newBuilder()
+          final Envelope.Builder envelopeBuilder = Envelope.newBuilder()
               .setType(Envelope.Type.UNIDENTIFIED_SENDER)
               .setClientTimestamp(clientTimestamp == 0 ? serverTimestamp : clientTimestamp)
               .setServerTimestamp(serverTimestamp)
-              .setStory(isStory)
               .setEphemeral(isEphemeral)
               .setUrgent(isUrgent)
-              .setSharedMrmKey(ByteString.copyFrom(sharedMrmKey))
-              .build();
+              .setSharedMrmKey(ByteString.copyFrom(sharedMrmKey));
+
+          if (isStory) {
+            // Avoid sending this field if it's false.
+            envelopeBuilder.setStory(true);
+          }
+
+          final Envelope prototypeMessage = envelopeBuilder.build();
 
           final Map<Account, Map<Byte, Boolean>> clientPresenceByAccountAndDevice = new ConcurrentHashMap<>();
 
@@ -221,6 +228,10 @@ public class MessagesManager {
     return getMessagesForDevice(destinationUuid, destinationDevice, null, cachedMessagesOnly);
   }
 
+  public MessageStream getMessages(final UUID destinationUuid, final Device destinationDevice) {
+    return new RedisDynamoDbMessageStream(messagesDynamoDb, messagesCache, redisMessageAvailabilityManager, destinationUuid, destinationDevice);
+  }
+
   private Publisher<Envelope> getMessagesForDevice(UUID destinationUuid, Device destinationDevice,
       @Nullable Integer limit, final boolean cachedMessagesOnly) {
 
@@ -241,26 +252,17 @@ public class MessagesManager {
     return messagesCache.clear(destinationUuid, deviceId);
   }
 
-  public CompletableFuture<Optional<RemovedMessage>> delete(UUID destinationUuid, Device destinationDevice, UUID guid,
-      @Nullable Long serverTimestamp) {
+  public CompletableFuture<Optional<RemovedMessage>> delete(final UUID destinationUuid,
+      final Device destinationDevice,
+      final UUID guid,
+      final long serverTimestamp) {
+
     return messagesCache.remove(destinationUuid, destinationDevice.getId(), guid)
-        .thenComposeAsync(removed -> {
-
-          if (removed.isPresent()) {
-            return CompletableFuture.completedFuture(removed);
-          }
-
-          final CompletableFuture<Optional<MessageProtos.Envelope>> maybeDeletedEnvelope;
-          if (serverTimestamp == null) {
-            maybeDeletedEnvelope = messagesDynamoDb.deleteMessageByDestinationAndGuid(destinationUuid,
-                destinationDevice, guid);
-          } else {
-            maybeDeletedEnvelope = messagesDynamoDb.deleteMessage(destinationUuid, destinationDevice, guid,
-                serverTimestamp);
-          }
-
-          return maybeDeletedEnvelope.thenApply(maybeEnvelope -> maybeEnvelope.map(RemovedMessage::fromEnvelope));
-        }, messageDeletionExecutor);
+        .thenComposeAsync(removed -> removed
+            .map(_ -> CompletableFuture.completedFuture(removed))
+            .orElseGet(() -> messagesDynamoDb.deleteMessage(destinationUuid, destinationDevice, guid, serverTimestamp)
+                .thenApply(maybeEnvelope -> maybeEnvelope.map(RemovedMessage::fromEnvelope))
+            ), messageDeletionExecutor);
   }
 
   /**

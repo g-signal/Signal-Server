@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import io.micrometer.core.instrument.Tags;
 import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
@@ -55,7 +56,7 @@ class MetricsHttpChannelListenerTest {
     when(meterRegistry.counter(eq(MetricsHttpChannelListener.REQUEST_COUNTER_NAME), any(Iterable.class)))
         .thenReturn(requestCounter);
 
-    when(meterRegistry.counter(eq(MetricsHttpChannelListener.REQUESTS_BY_VERSION_COUNTER_NAME), any(Iterable.class)))
+    when(meterRegistry.counter(eq(MetricsHttpChannelListener.REQUESTS_BY_VERSION_COUNTER_NAME), any(Tags.class)))
         .thenReturn(requestsByVersionCounter);
 
     when(meterRegistry.counter(eq(MetricsHttpChannelListener.RESPONSE_BYTES_COUNTER_NAME), any(Iterable.class)))
@@ -69,9 +70,10 @@ class MetricsHttpChannelListenerTest {
     listener = new MetricsHttpChannelListener(meterRegistry, clientReleaseManager, Collections.emptySet());
   }
 
-  @Test
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
   @SuppressWarnings("unchecked")
-  void testRequests() {
+  void testRequests(final boolean versionActive) {
     final String path = "/test";
     final String method = "GET";
     final int statusCode = 200;
@@ -81,11 +83,13 @@ class MetricsHttpChannelListenerTest {
 
     final Request request = mock(Request.class);
     when(request.getMethod()).thenReturn(method);
-    when(request.getHeader(HttpHeaders.USER_AGENT)).thenReturn("Signal-Android/4.53.7 (Android 8.1)");
+    when(request.getHeader(HttpHeaders.USER_AGENT)).thenReturn("Signal-Android/6.53.7 (Android 8.1)");
     when(request.getHttpURI()).thenReturn(httpUri);
 
     final Response response = mock(Response.class);
     when(response.getStatus()).thenReturn(statusCode);
+    when(clientReleaseManager.isVersionActive(any(), any())).thenReturn(versionActive);
+
     when(response.getContentCount()).thenReturn(1024L);
     when(request.getResponse()).thenReturn(response);
     when(request.getContentRead()).thenReturn(512L);
@@ -109,7 +113,7 @@ class MetricsHttpChannelListenerTest {
       tags.add(tag);
     }
 
-    assertEquals(6, tags.size());
+    assertEquals(versionActive ? 7 : 6, tags.size());
     assertTrue(tags.contains(Tag.of(MetricsHttpChannelListener.PATH_TAG, path)));
     assertTrue(tags.contains(Tag.of(MetricsHttpChannelListener.METHOD_TAG, method)));
     assertTrue(tags.contains(Tag.of(MetricsHttpChannelListener.STATUS_CODE_TAG, String.valueOf(statusCode))));
@@ -117,6 +121,7 @@ class MetricsHttpChannelListenerTest {
         tags.contains(Tag.of(MetricsHttpChannelListener.TRAFFIC_SOURCE_TAG, TrafficSource.HTTP.name().toLowerCase())));
     assertTrue(tags.contains(Tag.of(UserAgentTagUtil.PLATFORM_TAG, "android")));
     assertTrue(tags.contains(Tag.of(UserAgentTagUtil.LIBSIGNAL_TAG, "false")));
+    assertEquals(versionActive, tags.contains(Tag.of(UserAgentTagUtil.VERSION_TAG, "6.53.7")));
   }
 
   @ParameterizedTest
@@ -148,7 +153,7 @@ class MetricsHttpChannelListenerTest {
     listener.onComplete(request);
 
     if (versionActive) {
-      final ArgumentCaptor<Iterable<Tag>> tagCaptor = ArgumentCaptor.forClass(Iterable.class);
+      final ArgumentCaptor<Tags> tagCaptor = ArgumentCaptor.forClass(Tags.class);
       verify(meterRegistry).counter(eq(MetricsHttpChannelListener.REQUESTS_BY_VERSION_COUNTER_NAME),
           tagCaptor.capture());
       final Set<Tag> tags = new HashSet<>();

@@ -4,7 +4,7 @@
  */
 package org.whispersystems.textsecuregcm.storage;
 
-import static com.codahale.metrics.MetricRegistry.name;
+import static org.whispersystems.textsecuregcm.metrics.MetricsUtil.name;
 import static java.util.Objects.requireNonNull;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -70,6 +70,7 @@ import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledExcepti
 import software.amazon.awssdk.services.dynamodb.model.TransactionConflictException;
 import software.amazon.awssdk.services.dynamodb.model.Update;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.dynamodb.paginators.ScanPublisher;
 import software.amazon.awssdk.utils.CompletableFutureUtils;
 
 /**
@@ -321,6 +322,9 @@ public class Accounts {
       accountToCreate.setBackupCredentialRequests(
           existingAccount.getBackupCredentialRequest(BackupCredentialType.MESSAGES).orElse(null),
           existingAccount.getBackupCredentialRequest(BackupCredentialType.MEDIA).orElse(null));
+
+      // Carry over the existing backup voucher to the new account
+      accountToCreate.setBackupVoucher(existingAccount.getBackupVoucher());
 
       final List<TransactWriteItem> writeItems = new ArrayList<>();
 
@@ -1241,14 +1245,16 @@ public class Accounts {
     return Flux.range(0, segments)
         .parallel()
         .runOn(scheduler)
-        .flatMap(segment -> dynamoDbAsyncClient.scanPaginator(ScanRequest.builder()
-                .tableName(accountsTableName)
-                .consistentRead(true)
-                .segment(segment)
-                .totalSegments(segments)
-                .build())
-            .items()
-            .map(Accounts::fromItem))
+        .flatMap(segment -> {
+          final ScanPublisher scanPublisher = dynamoDbAsyncClient.scanPaginator(ScanRequest.builder()
+              .tableName(accountsTableName)
+              .consistentRead(true)
+              .segment(segment)
+              .totalSegments(segments)
+              .build());
+
+          return Flux.from(scanPublisher.items()).map(Accounts::fromItem);
+        })
         .sequential();
   }
 
