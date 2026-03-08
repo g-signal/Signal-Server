@@ -413,10 +413,6 @@ oneTimeDonations:
 registrationService:
   host: registration.example.com
   port: 443
-  credentialConfigurationJson: |
-    {
-      "example": "example"
-    }
   identityTokenAudience: https://registration.example.com
   collationKeySalt: secret://registrationService.collationKeySalt
   registrationCaCertificateEnabled: true
