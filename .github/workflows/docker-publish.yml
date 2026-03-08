@@ -39,9 +39,16 @@ jobs:
           FDB_VERSION=$(grep -m 1 "image: foundationdb/foundationdb:" .github/workflows/test.yml | awk -F':' '{print $3}' | tr -d ' ' || echo "7.3.62")
           echo "FDB_VERSION=$FDB_VERSION" >> $GITHUB_ENV
 
-      # 使用 package 而不是 prepare-package 解决 MDEP-187 问题
       - name: Build with Maven
-        run: ./mvnw -e -B clean package -DskipTests=true -Pexclude-spam-filter
+        run: |
+          # 第一步：打包主程序 (在 exclude-spam-filter profile 下会生成 shade fat jar)
+          ./mvnw -e -B clean package -DskipTests=true -Pexclude-spam-filter
+          # 第二步：显式拷贝依赖到 target/lib 目录，以兼容旧版 Dockerfile 的依赖需求
+          ./mvnw -e -B dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=service/target/lib -pl service
+          # 重命名生成的 JAR 为 Dockerfile 期望的通用名称，以便于无缝构建
+          if ls service/target/TextSecureServer-*.jar 1> /dev/null 2>&1; then
+            mv service/target/TextSecureServer-*.jar service/target/Signal-Service.jar || true
+          fi
 
       - name: Download FoundationDB client
         run: |
@@ -94,6 +101,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          build-args: |
+            JAR_FILE=Signal-Service.jar
+            CONFIG_FILE=sample.yml
           file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
