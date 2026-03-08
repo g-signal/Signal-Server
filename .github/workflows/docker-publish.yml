@@ -41,19 +41,19 @@ jobs:
 
       - name: Build with Maven
         run: |
-          # 第一步：打包主程序 (在 exclude-spam-filter profile 下会生成 shade fat jar)
-          ./mvnw -e -B clean package -DskipTests=true -Pexclude-spam-filter
-          # 第二步：显式拷贝依赖到 target/lib 目录，以兼容旧版 Dockerfile 的依赖需求
-          ./mvnw -e -B dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=service/target/lib -pl service
-          # 重命名生成的 JAR 为 Dockerfile 期望的通用名称，以便于无缝构建
+          # 第一步：编译并安装所有模块到本地 Maven 缓存 (.m2)。
+          ./mvnw -e -B clean install -DskipTests=true -Pexclude-spam-filter
+          
+          # 第二步：显式执行拷贝依赖命令，生成 target/lib 目录。
+          ./mvnw -e -B dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=service/target/lib -pl service -Pexclude-spam-filter
+          
+          # 第三步：重命名生成的 JAR，以符合旧版 Dockerfile 的预期
           if ls service/target/TextSecureServer-*.jar 1> /dev/null 2>&1; then
             mv service/target/TextSecureServer-*.jar service/target/Signal-Service.jar || true
           fi
 
       - name: Download FoundationDB client
         run: |
-          # The package step of Signal-Server usually downloads the fdb client into service/target/jib-extra/usr/lib/
-          # Ensure it exists or download manually
           mkdir -p service/target/jib-extra/usr/lib
           if [ ! -f "service/target/jib-extra/usr/lib/libfdb_c.x86_64.so" ] && [ ! -f "service/target/jib-extra/usr/lib/libfdb_c.so" ]; then
              echo "Downloading FDB client version $FDB_VERSION..."
@@ -80,10 +80,8 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "IMAGE_TAG=${{ github.event.inputs.tag_name }}" >> $GITHUB_ENV
           elif [ "${{ github.event_name }}" = "release" ]; then
-            # github.event.release.tag_name 包含 release 的 tag
             echo "IMAGE_TAG=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
           else
-            # fallback
             echo "IMAGE_TAG=latest" >> $GITHUB_ENV
           fi
 
@@ -94,16 +92,17 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
-            # 如果希望最新发布的 tag 也能同时被打上 latest 标签，可使用以下配置：
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          # 将构建上下文设为 service 目录，因为旧版 Dockerfile 假设所有的 target/ 和 config/ 都在构建上下文的当前目录下
+          context: ./service
           build-args: |
             JAR_FILE=Signal-Service.jar
             CONFIG_FILE=sample.yml
+          # 由于将上下文换到了 service 目录，我们需要指明 Dockerfile 的相对位置位于上一级目录（根目录）
           file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
