@@ -16,6 +16,7 @@ tlsKeyStore:
   password: secret://tlsKeyStore.password
 
 stripe:
+  enabled: false
   apiKey: secret://stripe.apiKey
   idempotencyKeyGenerator: secret://stripe.idempotencyKeyGenerator
   boostDescription: >
@@ -28,6 +29,7 @@ stripe:
       - eur
 
 braintree:
+  enabled: false
   merchantId: unset
   publicKey: secret://braintree.publicKey
   privateKey: secret://braintree.privateKey
@@ -48,6 +50,7 @@ braintree:
       }
 
 googlePlayBilling:
+  enabled: false
   credentialsJson: |
     {
       "credential": "configuration"
@@ -57,6 +60,7 @@ googlePlayBilling:
   productIdToLevel: {}
 
 appleAppStore:
+  enabled: false
   env: SANDBOX
   bundleId: bundle.name
   appAppleId: 12345
@@ -244,6 +248,7 @@ gcpAttachments: # GCP Storage configuration
 
 #不使用，在severcode里，改一行代码，不使用这个存储服务
 tus:
+  enabled: false
   uploadUri: https://example.org/upload
   userAuthenticationTokenSharedSecret: secret://tus.userAuthenticationTokenSharedSecret
 
@@ -266,6 +271,7 @@ cdn:
 
 #对应tus，不使用，只使用 2 gcs
 cdn3StorageManager:
+  enabled: false
   baseUri: https://storage-manager.example.com
   clientId: example
   clientSecret: secret://cdn3StorageManager.clientSecret
