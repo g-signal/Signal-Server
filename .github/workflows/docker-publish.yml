@@ -10,13 +10,14 @@ on:
         required: true
         type: string
 
+env:
+  # 请在下面替换为你自己的 Docker Hub 用户名和镜像名
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/signal-server
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      # 使用 GitHub Secret 中的 DOCKERHUB_USERNAME 变量动态生成镜像名称
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/signal-server
 
     steps:
       - name: Checkout repository
@@ -25,6 +26,33 @@ jobs:
           # 如果是手动触发，签出指定的 tag/branch
           ref: ${{ github.event.inputs.tag_name || github.ref }}
           fetch-depth: 1
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version-file: .java-version
+          cache: 'maven'
+
+      - name: Extract FoundationDB Version
+        id: fdb_version
+        run: |
+          # Try to get foundationdb version from the test.yml workflow file which defines the service containers
+          FDB_VERSION=$(grep -m 1 "image: foundationdb/foundationdb:" .github/workflows/test.yml | awk -F':' '{print $3}' | tr -d ' ' || echo "7.3.62")
+          echo "FDB_VERSION=$FDB_VERSION" >> $GITHUB_ENV
+
+      - name: Build with Maven
+        run: ./mvnw -e -B clean prepare-package -DskipTests=true
+
+      - name: Download FoundationDB client
+        run: |
+          # The prepare-package step of Signal-Server usually downloads the fdb client into service/target/jib-extra/usr/lib/
+          # Ensure it exists or download manually
+          mkdir -p service/target/jib-extra/usr/lib
+          if [ ! -f "service/target/jib-extra/usr/lib/libfdb_c.x86_64.so" ] && [ ! -f "service/target/jib-extra/usr/lib/libfdb_c.so" ]; then
+             echo "Downloading FDB client version $FDB_VERSION..."
+             curl -L -o service/target/jib-extra/usr/lib/libfdb_c.so https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/libfdb_c.x86_64.so
+          fi
 
       - name: Set up QEMU (for multi-arch builds if needed)
         uses: docker/setup-qemu-action@v3
@@ -57,7 +85,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/signal-server
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
             # 如果希望最新发布的 tag 也能同时被打上 latest 标签，可使用以下配置：
