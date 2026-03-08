@@ -43,7 +43,7 @@ COPY --from=builder /app/service/target/lib/ /app/lib/
 
 
 # Copy FoundationDB client library
-COPY --from=builder /app/service/target/jib-extra/usr/lib/libfdb_c.x86_64.so /usr/lib/libfdb_c.so
+COPY --from=builder /app/service/target/jib-extra/usr/lib/libfdb_c.so /usr/lib/libfdb_c.so
 
 # Set proper permissions
 RUN chown -R signal:signal /app
