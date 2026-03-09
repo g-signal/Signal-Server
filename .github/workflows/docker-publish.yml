@@ -1,0 +1,46 @@
+name: Build and Publish Docker Image
+
+on:
+  release:
+    types: [published]
+
+env:
+  IMAGE_NAME: signal-server
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        run: |
+          docker buildx create --use --name builder
+          docker buildx inspect --bootstrap
+
+      - name: Log in to Docker Hub
+        run: |
+          echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+
+      - name: Extract version from release tag
+        id: version
+        run: |
+          # Remove 'v' prefix if present
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Release version: ${VERSION}"
+
+      - name: Build and push Docker image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file ./Dockerfile \
+            --tag ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${VERSION} \
+            --push \
+            .
