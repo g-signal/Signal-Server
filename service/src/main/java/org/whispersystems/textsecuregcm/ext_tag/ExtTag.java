@@ -15,92 +15,92 @@ import java.util.Objects;
  */
 public class ExtTag {
 
-    private final String id;
-    private final int type;
-    private final String category;
-    private final String text;
-    private final String description;
-    private final String cssColor;
-    private final Instant expiration;
-    private final boolean visible;
-    private final int priority;
-    private final String value;
+    private String tagId;
+    private Integer tagType;
+    private String text;
+    private String imgBase64;
+    private String cssBackgroundColor;
+    private String cssColor;
+    private Float cssOpacity;
+    private Integer cssBorderWidth;
+    private Integer cssBorderRadius;
+    private String cssBorderColor;
+    private String cssBorderStyle;
+
+
 
     @JsonCreator
     public ExtTag(
-            @JsonProperty("id") final String id,
-            @JsonProperty("type") final int type,
-            @JsonProperty("category") final String category,
+            @JsonProperty("tagId") final String tagId,
+            @JsonProperty("tagType") final Integer tagType,
             @JsonProperty("text") final String text,
-            @JsonProperty("description") final String description,
+            @JsonProperty("imgBase64") final String imgBase64,
+            @JsonProperty("cssBackgroundColor") final String cssBackgroundColor,
             @JsonProperty("cssColor") final String cssColor,
-            @JsonProperty("expiration") final Instant expiration,
-            @JsonProperty("visible") final boolean visible,
-            @JsonProperty("priority") final int priority,
-            @JsonProperty("value") final String value) {
-        this.id = Objects.requireNonNull(id);
-        this.type = type;
-        this.category = category;
+            @JsonProperty("cssOpacity") final Float cssOpacity,
+            @JsonProperty("cssBorderWidth") final Integer cssBorderWidth,
+            @JsonProperty("cssBorderRadius") final Integer cssBorderRadius,
+            @JsonProperty("cssBorderColor") final String cssBorderColor,
+            @JsonProperty("cssBorderStyle") final String cssBorderStyle) {
+        this.tagId = tagId;
+        this.tagType = tagType;
         this.text = text;
-        this.description = description;
+        this.imgBase64 = imgBase64;
+        this.cssBackgroundColor = cssBackgroundColor;
         this.cssColor = cssColor;
-        this.expiration = expiration;
-        this.visible = visible;
-        this.priority = priority;
-        this.value = value;
+        this.cssOpacity = cssOpacity;
+        this.cssBorderWidth = cssBorderWidth;
+        this.cssBorderRadius = cssBorderRadius;
+        this.cssBorderColor = cssBorderColor;
+        this.cssBorderStyle = cssBorderStyle;
     }
 
     // Constructor for backward compatibility
-    public ExtTag(int type, String text, String cssColor) {
-        this(generateId(type, text), type, null, text, null, cssColor, null, true, 0, null);
+    public ExtTag(Integer tagType, String text, String cssColor) {
+        this(null, tagType, text, null, null, cssColor, null, null, null, null, null);
     }
 
-    private static String generateId(int type, String text) {
-        return "tag_" + type + "_" + (text != null ? text.toLowerCase().replaceAll("[^a-z0-9]", "_") : "unknown");
+    public String getTagId() {
+        return tagId;
     }
 
-    public String getId() {
-        return id;
-    }
-
-    public int getType() {
-        return type;
-    }
-
-    public String getCategory() {
-        return category;
+    public Integer getTagType() {
+        return tagType;
     }
 
     public String getText() {
         return text;
     }
 
-    public String getDescription() {
-        return description;
-    }
-
     public String getCssColor() {
         return cssColor;
     }
-
-    public Instant getExpiration() {
-        return expiration;
+    public String getImgBase64() {
+        return imgBase64;
     }
 
-    public boolean isVisible() {
-        return visible;
+    public String getCssBackgroundColor() {
+        return cssBackgroundColor;
     }
 
-    public int getPriority() {
-        return priority;
+    public Float getCssOpacity() {
+        return cssOpacity;
     }
 
-    public String getValue() {
-        return value;
+    public Integer getCssBorderWidth() {
+        return cssBorderWidth;
     }
 
-    public boolean isExpired() {
-        return expiration != null && Instant.now().isAfter(expiration);
+    public Integer getCssBorderRadius() {
+        return cssBorderRadius;
+    }
+
+    public String getCssBorderColor() {
+        return cssBorderColor;
+    }
+
+    public String getCssBorderStyle() {
+        return cssBorderStyle;
     }
 
     @Override
@@ -108,36 +108,38 @@ public class ExtTag {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ExtTag extTag = (ExtTag) o;
-        return type == extTag.type &&
-                visible == extTag.visible &&
-                priority == extTag.priority &&
-                Objects.equals(id, extTag.id) &&
-                Objects.equals(category, extTag.category) &&
+        return Objects.equals(tagId, extTag.tagId) &&
+                Objects.equals(tagType, extTag.tagType) &&
                 Objects.equals(text, extTag.text) &&
-                Objects.equals(description, extTag.description) &&
+                Objects.equals(imgBase64, extTag.imgBase64) &&
+                Objects.equals(cssBackgroundColor, extTag.cssBackgroundColor) &&
                 Objects.equals(cssColor, extTag.cssColor) &&
-                Objects.equals(expiration, extTag.expiration) &&
-                Objects.equals(value, extTag.value);
+                Objects.equals(cssOpacity, extTag.cssOpacity) &&
+                Objects.equals(cssBorderWidth, extTag.cssBorderWidth) &&
+                Objects.equals(cssBorderRadius, extTag.cssBorderRadius) &&
+                Objects.equals(cssBorderColor, extTag.cssBorderColor) &&
+                Objects.equals(cssBorderStyle, extTag.cssBorderStyle);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, type, category, text, description, cssColor, expiration, visible, priority, value);
+        return Objects.hash(tagId, tagType, text, imgBase64, cssBackgroundColor, cssColor, cssOpacity, cssBorderWidth, cssBorderRadius, cssBorderColor, cssBorderStyle);
     }
 
     @Override
     public String toString() {
         return "ExtTag{" +
-                "id='" + id + '\'' +
-                ", type=" + type +
-                ", category='" + category + '\'' +
+                "tagId=" + tagId +
+                ", tagType=" + tagType +
                 ", text='" + text + '\'' +
-                ", description='" + description + '\'' +
+                ", imgBase64='" + imgBase64 + '\'' +
+                ", cssBackgroundColor='" + cssBackgroundColor + '\'' +
                 ", cssColor='" + cssColor + '\'' +
-                ", expiration=" + expiration +
-                ", visible=" + visible +
-                ", priority=" + priority +
-                ", value='" + value + '\'' +
+                ", cssOpacity=" + cssOpacity +
+                ", cssBorderWidth=" + cssBorderWidth +
+                ", cssBorderRadius=" + cssBorderRadius +
+                ", cssBorderColor='" + cssBorderColor + '\'' +
+                ", cssBorderStyle='" + cssBorderStyle + '\'' +
                 '}';
     }
 
@@ -145,29 +147,25 @@ public class ExtTag {
      * Builder class for ExtTag
      */
     public static class Builder {
-        private String id;
-        private int type;
-        private String category;
+        private String tagId;
+        private Integer tagType;
         private String text;
-        private String description;
+        private String imgBase64;
+        private String cssBackgroundColor;
         private String cssColor;
-        private Instant expiration;
-        private boolean visible = true;
-        private int priority = 0;
-        private String value;
+        private Float cssOpacity;
+        private Integer cssBorderWidth;
+        private Integer cssBorderRadius;
+        private String cssBorderColor;
+        private String cssBorderStyle;
 
-        public Builder setId(String id) {
-            this.id = id;
+        public Builder setTagId(String tagId) {
+            this.tagId = tagId;
             return this;
         }
 
-        public Builder setType(int type) {
-            this.type = type;
-            return this;
-        }
-
-        public Builder setCategory(String category) {
-            this.category = category;
+        public Builder setTagType(Integer tagType) {
+            this.tagType = tagType;
             return this;
         }
 
@@ -176,8 +174,13 @@ public class ExtTag {
             return this;
         }
 
-        public Builder setDescription(String description) {
-            this.description = description;
+        public Builder setImgBase64(String imgBase64) {
+            this.imgBase64 = imgBase64;
+            return this;
+        }
+
+        public Builder setCssBackgroundColor(String cssBackgroundColor) {
+            this.cssBackgroundColor = cssBackgroundColor;
             return this;
         }
 
@@ -186,31 +189,33 @@ public class ExtTag {
             return this;
         }
 
-        public Builder setExpiration(Instant expiration) {
-            this.expiration = expiration;
+        public Builder setCssOpacity(Float cssOpacity) {
+            this.cssOpacity = cssOpacity;
             return this;
         }
 
-        public Builder setVisible(boolean visible) {
-            this.visible = visible;
+        public Builder setCssBorderWidth(Integer cssBorderWidth) {
+            this.cssBorderWidth = cssBorderWidth;
             return this;
         }
 
-        public Builder setPriority(int priority) {
-            this.priority = priority;
+        public Builder setCssBorderRadius(Integer cssBorderRadius) {
+            this.cssBorderRadius = cssBorderRadius;
             return this;
         }
 
-        public Builder setValue(String value) {
-            this.value = value;
+        public Builder setCssBorderColor(String cssBorderColor) {
+            this.cssBorderColor = cssBorderColor;
+            return this;
+        }
+
+        public Builder setCssBorderStyle(String cssBorderStyle) {
+            this.cssBorderStyle = cssBorderStyle;
             return this;
         }
 
         public ExtTag build() {
-            if (id == null && text != null) {
-                id = generateId(type, text);
-            }
-            return new ExtTag(id, type, category, text, description, cssColor, expiration, visible, priority, value);
+            return new ExtTag(tagId, tagType, text, imgBase64, cssBackgroundColor, cssColor, cssOpacity, cssBorderWidth, cssBorderRadius, cssBorderColor, cssBorderStyle);
         }
     }
 }

@@ -323,17 +323,49 @@ message ProfileAvatarUploadAttributes {
 
 message ExtTag {
   /**
+   * Tag unique identifier.
+   */
+  string tag_id = 1;
+  /**
    * Tag display type.
    */
-  int32 type = 1;
+  int32 tag_type = 2;
   /**
    * Tag display text.
    */
-  string text = 2;
+  string text = 3;
   /**
-   * Tag CSS color.
+   * Base64 encoded image data.
    */
-  string css_color = 3;
+  string img_base64 = 4;
+  /**
+   * CSS background color.
+   */
+  string css_background_color = 5;
+  /**
+   * CSS color.
+   */
+  string css_color = 6;
+  /**
+   * CSS opacity (0.0 to 1.0).
+   */
+  float css_opacity = 7;
+  /**
+   * CSS border width in pixels.
+   */
+  int32 css_border_width = 8;
+  /**
+   * CSS border radius in pixels.
+   */
+  int32 css_border_radius = 9;
+  /**
+   * CSS border color.
+   */
+  string css_border_color = 10;
+  /**
+   * CSS border style (solid, dashed, etc.).
+   */
+  string css_border_style = 11;
 }
 
 message Badge {

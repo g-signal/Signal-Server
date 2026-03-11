@@ -101,11 +101,50 @@ public class ProfileGrpcHelper {
   static List<ExtTag> buildExtTags(final List<org.whispersystems.textsecuregcm.ext_tag.ExtTag> extTags) {
     final ArrayList<ExtTag> grpcExtTags = new ArrayList<>();
     for (final org.whispersystems.textsecuregcm.ext_tag.ExtTag extTag : extTags) {
-      grpcExtTags.add(ExtTag.newBuilder()
-          .setType(extTag.getType())
-          .setText(extTag.getText() != null ? extTag.getText() : "")
-          .setCssColor(extTag.getCssColor() != null ? extTag.getCssColor() : "")
-          .build());
+      ExtTag.Builder builder = ExtTag.newBuilder()
+          .setText(extTag.getText() != null ? extTag.getText() : "");
+
+      if (extTag.getTagId() != null) {
+        builder.setTagId(extTag.getTagId());
+      }
+
+      if (extTag.getTagType() != null) {
+        builder.setTagType(extTag.getTagType());
+      }
+
+      if (extTag.getImgBase64() != null) {
+        builder.setImgBase64(extTag.getImgBase64());
+      }
+
+      if (extTag.getCssBackgroundColor() != null) {
+        builder.setCssBackgroundColor(extTag.getCssBackgroundColor());
+      }
+
+      if (extTag.getCssColor() != null) {
+        builder.setCssColor(extTag.getCssColor());
+      }
+
+      if (extTag.getCssOpacity() != null) {
+        builder.setCssOpacity(extTag.getCssOpacity());
+      }
+
+      if (extTag.getCssBorderWidth() != null) {
+        builder.setCssBorderWidth(extTag.getCssBorderWidth());
+      }
+
+      if (extTag.getCssBorderRadius() != null) {
+        builder.setCssBorderRadius(extTag.getCssBorderRadius());
+      }
+
+      if (extTag.getCssBorderColor() != null) {
+        builder.setCssBorderColor(extTag.getCssBorderColor());
+      }
+
+      if (extTag.getCssBorderStyle() != null) {
+        builder.setCssBorderStyle(extTag.getCssBorderStyle());
+      }
+
+      grpcExtTags.add(builder.build());
     }
     return grpcExtTags;
   }
