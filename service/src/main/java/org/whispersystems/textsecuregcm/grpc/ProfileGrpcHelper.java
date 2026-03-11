@@ -15,6 +15,7 @@ import java.util.UUID;
 import io.grpc.StatusException;
 import org.signal.chat.profile.Badge;
 import org.signal.chat.profile.BadgeSvg;
+import org.signal.chat.profile.ExtTag;
 import org.signal.chat.profile.GetExpiringProfileKeyCredentialResponse;
 import org.signal.chat.profile.GetUnversionedProfileResponse;
 import org.signal.chat.profile.GetVersionedProfileResponse;
@@ -25,6 +26,7 @@ import org.signal.libsignal.zkgroup.profiles.ExpiringProfileKeyCredentialRespons
 import org.signal.libsignal.zkgroup.profiles.ServerZkProfileOperations;
 import org.whispersystems.textsecuregcm.auth.UnidentifiedAccessChecksum;
 import org.whispersystems.textsecuregcm.badges.ProfileBadgeConverter;
+import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.DeviceCapability;
@@ -95,11 +97,25 @@ public class ProfileGrpcHelper {
     return grpcBadgeSvgs;
   }
 
+  @VisibleForTesting
+  static List<ExtTag> buildExtTags(final List<org.whispersystems.textsecuregcm.ext_tag.ExtTag> extTags) {
+    final ArrayList<ExtTag> grpcExtTags = new ArrayList<>();
+    for (final org.whispersystems.textsecuregcm.ext_tag.ExtTag extTag : extTags) {
+      grpcExtTags.add(ExtTag.newBuilder()
+          .setType(extTag.getType())
+          .setText(extTag.getText() != null ? extTag.getText() : "")
+          .setCssColor(extTag.getCssColor() != null ? extTag.getCssColor() : "")
+          .build());
+    }
+    return grpcExtTags;
+  }
+
   static GetUnversionedProfileResponse buildUnversionedProfileResponse(
       final ServiceIdentifier targetIdentifier,
       final UUID requesterUuid,
       final Account targetAccount,
-      final ProfileBadgeConverter profileBadgeConverter) {
+      final ProfileBadgeConverter profileBadgeConverter,
+      final ExtTagClient extTagClient) {
     final GetUnversionedProfileResponse.Builder responseBuilder = GetUnversionedProfileResponse.newBuilder()
         .setIdentityKey(ByteString.copyFrom(targetAccount.getIdentityKey(targetIdentifier.identityType()).serialize()))
         .addAllCapabilities(buildAccountCapabilities(targetAccount));
@@ -116,11 +132,25 @@ public class ProfileGrpcHelper {
             .map(UnidentifiedAccessChecksum::generateFor)
             .map(ByteString::copyFrom)
             .ifPresent(responseBuilder::setUnidentifiedAccess);
+
+        // Query external tags for this account
+        final List<org.whispersystems.textsecuregcm.ext_tag.ExtTag> extTags =
+                ProfileHelper.queryExternalTags(extTagClient, targetAccount.getUuid());
+        responseBuilder.addAllExtTags(buildExtTags(extTags));
       }
       case PNI -> responseBuilder.setUnrestrictedUnidentifiedAccess(false);
     }
 
     return responseBuilder.build();
+  }
+
+  // Overloaded method for backward compatibility - returns empty ext_tags when no ExtTagClient provided
+  static GetUnversionedProfileResponse buildUnversionedProfileResponse(
+      final ServiceIdentifier targetIdentifier,
+      final UUID requesterUuid,
+      final Account targetAccount,
+      final ProfileBadgeConverter profileBadgeConverter) {
+    return buildUnversionedProfileResponse(targetIdentifier, requesterUuid, targetAccount, profileBadgeConverter, null);
   }
 
   static GetExpiringProfileKeyCredentialResponse getExpiringProfileKeyCredentialResponse(

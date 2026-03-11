@@ -55,12 +55,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.*;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -99,6 +94,7 @@ import org.whispersystems.textsecuregcm.captcha.CaptchaChecker;
 import org.whispersystems.textsecuregcm.captcha.CaptchaClient;
 import org.whispersystems.textsecuregcm.captcha.RegistrationCaptchaManager;
 import org.whispersystems.textsecuregcm.captcha.ShortCodeExpander;
+import org.whispersystems.textsecuregcm.configuration.ExtTagConfiguration;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretStore;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretsModule;
@@ -135,6 +131,7 @@ import org.whispersystems.textsecuregcm.currency.CoinGeckoClient;
 import org.whispersystems.textsecuregcm.currency.CurrencyConversionManager;
 import org.whispersystems.textsecuregcm.currency.FixerClient;
 import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
+import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
 import org.whispersystems.textsecuregcm.filters.ExternalRequestFilter;
 import org.whispersystems.textsecuregcm.filters.RemoteAddressFilter;
 import org.whispersystems.textsecuregcm.filters.RemoteDeprecationFilter;
@@ -504,6 +501,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         .maxThreads(32).minThreads(32).workQueue(fcmSenderQueue).build();
     ExecutorService secureValueRecoveryServiceExecutor = ExecutorServiceBuilder.of(environment, "secureValueRecoveryService")
         .maxThreads(1).minThreads(1).build();
+    ExecutorService extTagClientExecutor = ExecutorServiceBuilder.of(environment, "extTagClient")
+            .maxThreads(1).minThreads(1).build();
     ExecutorService storageServiceExecutor = ExecutorServiceBuilder.of(environment, "storageService")
         .maxThreads(1).minThreads(1).build();
     ExecutorService virtualThreadEventLoggerExecutor = ExecutorServiceBuilder.of(environment, "virtualThreadEventLogger")
@@ -512,6 +511,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         .minThreads(1).maxThreads(1).build();
     ScheduledExecutorService secureValueRecoveryServiceRetryExecutor =
       ScheduledExecutorServiceBuilder.of(environment, "secureValueRecoveryServiceRetry").threads(1).build();
+    ScheduledExecutorService extTagClientRetryExecutor =
+            ScheduledExecutorServiceBuilder.of(environment, "extTagClient").threads(1).build();
     ScheduledExecutorService storageServiceRetryExecutor =
       ScheduledExecutorServiceBuilder.of(environment, "storageServiceRetry").threads(1).build();
     ScheduledExecutorService remoteStorageRetryExecutor =
@@ -613,6 +614,12 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         secureValueRecoveryServiceRetryExecutor,
         config.getSvr2Configuration(),
         () -> dynamicConfigurationManager.getConfiguration().getSvr2StatusCodesToIgnoreForAccountDeletion());
+
+    ExtTagClient extTagClient = new ExtTagClient(extTagClientExecutor,
+            extTagClientRetryExecutor,
+            config.getExtTag(),
+            () -> dynamicConfigurationManager.getConfiguration().getExtTagStatusCodesToIgnoreForQuery());
+
     SecureValueRecoveryClient secureValueRecoveryBClient = new SecureValueRecoveryClient(
         svrbCredentialsGenerator,
         secureValueRecoveryServiceExecutor,
@@ -901,7 +908,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             .addService(ExternalServiceCredentialsGrpcService.createForAllExternalServices(config, rateLimiters))
             .addService(new KeysGrpcService(accountsManager, keysManager, rateLimiters))
             .addService(new ProfileGrpcService(clock, accountsManager, profilesManager, dynamicConfigurationManager,
-                config.getBadges(), profileCdnPolicyGenerator, profileCdnPolicySigner, profileBadgeConverter, rateLimiters, zkProfileOperations));
+                config.getBadges(), profileCdnPolicyGenerator, profileCdnPolicySigner, profileBadgeConverter, rateLimiters, zkProfileOperations, extTagClient));
       }
     };
 
@@ -1135,7 +1142,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             Clock.systemUTC()),
         new PaymentsController(currencyManager, paymentsCredentialsGenerator),
         new ProfileController(clock, rateLimiters, accountsManager, profilesManager, dynamicConfigurationManager,
-            profileBadgeConverter, config.getBadges(), profileCdnPolicyGenerator, profileCdnPolicySigner,
+            profileBadgeConverter, config.getBadges(), extTagClient, profileCdnPolicyGenerator, profileCdnPolicySigner,
             zkSecretParams, zkProfileOperations, batchIdentityCheckExecutor),
         new ProvisioningController(rateLimiters, provisioningManager),
         new RegistrationController(accountsManager, phoneVerificationTokenManager, registrationLockVerificationManager,

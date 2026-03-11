@@ -12,6 +12,8 @@ import org.whispersystems.textsecuregcm.configuration.BadgeConfiguration;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.storage.AccountBadge;
 import org.whispersystems.textsecuregcm.storage.VersionedProfile;
+import org.whispersystems.textsecuregcm.ext_tag.ExtTag;
+import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
 import javax.annotation.Nullable;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -96,5 +98,22 @@ public class ProfileHelper {
         encodedCredentialRequest);
 
     return zkProfileOperations.issueExpiringProfileKeyCredential(request, accountIdentifier, commitment, expiration);
+  }
+
+  /**
+   * Query external tags for a user account using ExtTagClient
+   * Returns empty list if query fails to maintain availability
+   */
+  public static List<ExtTag> queryExternalTags(final ExtTagClient extTagClient, final UUID accountIdentifier) {
+    if (extTagClient == null) {
+      return List.of();
+    }
+
+    try {
+      return extTagClient.queryAccountTags(accountIdentifier.toString()).join();
+    } catch (Exception e) {
+      // Log error but don't fail the profile request - tags are supplementary data
+      return List.of();
+    }
   }
 }

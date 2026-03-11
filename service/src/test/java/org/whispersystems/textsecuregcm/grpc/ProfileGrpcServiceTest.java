@@ -208,7 +208,8 @@ public class ProfileGrpcServiceTest extends SimpleBaseGrpcTest<ProfileGrpcServic
         policySigner,
         profileBadgeConverter,
         rateLimiters,
-        serverZkProfileOperations
+        serverZkProfileOperations,
+            null
     );
   }
 

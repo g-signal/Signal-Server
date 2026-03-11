@@ -33,6 +33,7 @@ import org.whispersystems.textsecuregcm.auth.grpc.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.auth.grpc.AuthenticationUtil;
 import org.whispersystems.textsecuregcm.badges.ProfileBadgeConverter;
 import org.whispersystems.textsecuregcm.configuration.BadgeConfiguration;
+import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
 import org.whispersystems.textsecuregcm.configuration.BadgesConfiguration;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.controllers.RateLimitExceededException;
@@ -62,6 +63,7 @@ public class ProfileGrpcService extends SimpleProfileGrpc.ProfileImplBase {
   private final ProfileBadgeConverter profileBadgeConverter;
   private final RateLimiters rateLimiters;
   private final ServerZkProfileOperations zkProfileOperations;
+  private final ExtTagClient extTagClient;
 
   private record AvatarData(Optional<String> currentAvatar,
                             Optional<String>  finalAvatar,
@@ -77,7 +79,8 @@ public class ProfileGrpcService extends SimpleProfileGrpc.ProfileImplBase {
       final PolicySigner policySigner,
       final ProfileBadgeConverter profileBadgeConverter,
       final RateLimiters rateLimiters,
-      final ServerZkProfileOperations zkProfileOperations) {
+      final ServerZkProfileOperations zkProfileOperations,
+      final ExtTagClient extTagClient) {
     this.clock = clock;
     this.accountsManager = accountsManager;
     this.profilesManager = profilesManager;
@@ -89,6 +92,7 @@ public class ProfileGrpcService extends SimpleProfileGrpc.ProfileImplBase {
     this.profileBadgeConverter = profileBadgeConverter;
     this.rateLimiters = rateLimiters;
     this.zkProfileOperations = zkProfileOperations;
+    this.extTagClient = extTagClient;
   }
 
   @Override
@@ -165,7 +169,8 @@ public class ProfileGrpcService extends SimpleProfileGrpc.ProfileImplBase {
     return ProfileGrpcHelper.buildUnversionedProfileResponse(targetIdentifier,
             authenticatedDevice.accountIdentifier(),
             targetAccount,
-            profileBadgeConverter);
+            profileBadgeConverter,
+            extTagClient);
   }
 
   @Override

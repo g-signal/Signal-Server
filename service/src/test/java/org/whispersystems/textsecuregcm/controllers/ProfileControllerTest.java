@@ -89,6 +89,7 @@ import org.whispersystems.textsecuregcm.entities.CreateProfileRequest;
 import org.whispersystems.textsecuregcm.entities.ExpiringProfileKeyCredentialProfileResponse;
 import org.whispersystems.textsecuregcm.entities.ProfileAvatarUploadAttributes;
 import org.whispersystems.textsecuregcm.entities.VersionedProfileResponse;
+import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
 import org.whispersystems.textsecuregcm.identity.AciServiceIdentifier;
 import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.identity.PniServiceIdentifier;
@@ -119,6 +120,8 @@ class ProfileControllerTest {
 
   private static final TestClock clock = TestClock.now();
   private static final AccountsManager accountsManager = mock(AccountsManager.class);
+
+  private static final ExtTagClient extTagClient = mock(ExtTagClient.class);
   private static final ProfilesManager profilesManager = mock(ProfilesManager.class);
   private static final RateLimiters rateLimiters = mock(RateLimiters.class);
   private static final RateLimiter rateLimiter = mock(RateLimiter.class);
@@ -167,6 +170,7 @@ class ProfileControllerTest {
               new BadgeConfiguration("TEST2", "testing", List.of("l", "m", "h", "x", "xx", "xxx"), "SVG", List.of(new BadgeSvg("sl", "sd"), new BadgeSvg("ml", "md"), new BadgeSvg("ll", "ld"))),
               new BadgeConfiguration("TEST3", "testing", List.of("l", "m", "h", "x", "xx", "xxx"), "SVG", List.of(new BadgeSvg("sl", "sd"), new BadgeSvg("ml", "md"), new BadgeSvg("ll", "ld")))
           ), List.of("TEST1"), Map.of(1L, "TEST1", 2L, "TEST2", 3L, "TEST3")),
+          extTagClient,
           postPolicyGenerator,
           policySigner,
           serverSecretParams,

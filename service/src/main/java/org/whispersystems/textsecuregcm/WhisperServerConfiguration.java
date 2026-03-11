@@ -14,55 +14,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import org.whispersystems.textsecuregcm.attachments.TusConfiguration;
-import org.whispersystems.textsecuregcm.configuration.ApnConfiguration;
-import org.whispersystems.textsecuregcm.configuration.AppleAppStoreConfiguration;
-import org.whispersystems.textsecuregcm.configuration.AppleDeviceCheckConfiguration;
-import org.whispersystems.textsecuregcm.configuration.AwsCredentialsProviderFactory;
-import org.whispersystems.textsecuregcm.configuration.BadgesConfiguration;
-import org.whispersystems.textsecuregcm.configuration.BraintreeConfiguration;
-import org.whispersystems.textsecuregcm.configuration.Cdn3StorageManagerConfiguration;
-import org.whispersystems.textsecuregcm.configuration.CdnConfiguration;
-import org.whispersystems.textsecuregcm.configuration.ClientReleaseConfiguration;
-import org.whispersystems.textsecuregcm.configuration.DatadogConfiguration;
-import org.whispersystems.textsecuregcm.configuration.DefaultAwsCredentialsFactory;
-import org.whispersystems.textsecuregcm.configuration.DeviceCheckConfiguration;
-import org.whispersystems.textsecuregcm.configuration.DirectoryV2Configuration;
-import org.whispersystems.textsecuregcm.configuration.DogstatsdConfiguration;
-import org.whispersystems.textsecuregcm.configuration.DynamoDbClientFactory;
-import org.whispersystems.textsecuregcm.configuration.DynamoDbTables;
-import org.whispersystems.textsecuregcm.configuration.ExternalRequestFilterConfiguration;
-import org.whispersystems.textsecuregcm.configuration.FaultTolerantRedisClientFactory;
-import org.whispersystems.textsecuregcm.configuration.FaultTolerantRedisClusterFactory;
-import org.whispersystems.textsecuregcm.configuration.FcmConfiguration;
-import org.whispersystems.textsecuregcm.configuration.GcpAttachmentsConfiguration;
-import org.whispersystems.textsecuregcm.configuration.GenericZkConfig;
-import org.whispersystems.textsecuregcm.configuration.GooglePlayBillingConfiguration;
-import org.whispersystems.textsecuregcm.configuration.IdlePrimaryDeviceReminderConfiguration;
-import org.whispersystems.textsecuregcm.configuration.KeyTransparencyServiceConfiguration;
-import org.whispersystems.textsecuregcm.configuration.LinkDeviceSecretConfiguration;
-import org.whispersystems.textsecuregcm.configuration.MaxDeviceConfiguration;
-import org.whispersystems.textsecuregcm.configuration.MessageByteLimitCardinalityEstimatorConfiguration;
-import org.whispersystems.textsecuregcm.configuration.MessageCacheConfiguration;
-import org.whispersystems.textsecuregcm.configuration.NoiseTunnelConfiguration;
-import org.whispersystems.textsecuregcm.configuration.OneTimeDonationConfiguration;
-import org.whispersystems.textsecuregcm.configuration.OpenTelemetryConfiguration;
-import org.whispersystems.textsecuregcm.configuration.PagedSingleUseKEMPreKeyStoreConfiguration;
-import org.whispersystems.textsecuregcm.configuration.PaymentsServiceConfiguration;
-import org.whispersystems.textsecuregcm.configuration.RegistrationServiceClientFactory;
-import org.whispersystems.textsecuregcm.configuration.RemoteConfigConfiguration;
-import org.whispersystems.textsecuregcm.configuration.ReportMessageConfiguration;
-import org.whispersystems.textsecuregcm.configuration.S3ObjectMonitorFactory;
-import org.whispersystems.textsecuregcm.configuration.SecureStorageServiceConfiguration;
-import org.whispersystems.textsecuregcm.configuration.SecureValueRecoveryConfiguration;
-import org.whispersystems.textsecuregcm.configuration.ShortCodeExpanderConfiguration;
-import org.whispersystems.textsecuregcm.configuration.SpamFilterConfiguration;
-import org.whispersystems.textsecuregcm.configuration.StripeConfiguration;
-import org.whispersystems.textsecuregcm.configuration.SubscriptionConfiguration;
-import org.whispersystems.textsecuregcm.configuration.TlsKeyStoreConfiguration;
-import org.whispersystems.textsecuregcm.configuration.TurnConfiguration;
-import org.whispersystems.textsecuregcm.configuration.UnidentifiedDeliveryConfiguration;
-import org.whispersystems.textsecuregcm.configuration.VirtualThreadConfiguration;
-import org.whispersystems.textsecuregcm.configuration.ZkConfig;
+import org.whispersystems.textsecuregcm.configuration.*;
 import org.whispersystems.textsecuregcm.limits.RateLimiterConfig;
 import org.whispersystems.websocket.configuration.WebSocketConfiguration;
 
@@ -168,6 +120,12 @@ public class WhisperServerConfiguration extends Configuration {
   @Valid
   @JsonProperty
   private SecureValueRecoveryConfiguration svrb;
+
+
+  @NotNull
+  @Valid
+  @JsonProperty
+  private ExtTagConfiguration extTag;
 
   @NotNull
   @Valid
@@ -408,9 +366,15 @@ public class WhisperServerConfiguration extends Configuration {
     return svrb;
   }
 
+  public ExtTagConfiguration getExtTag() {
+    return extTag;
+  }
+
   public DirectoryV2Configuration getDirectoryV2Configuration() {
     return directoryV2;
   }
+
+
 
   public SecureStorageServiceConfiguration getSecureStorageServiceConfiguration() {
     return storageService;

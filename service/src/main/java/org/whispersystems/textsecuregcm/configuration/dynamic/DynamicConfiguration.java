@@ -62,6 +62,10 @@ public class DynamicConfiguration {
 
   @JsonProperty
   @Valid
+  List<Integer> extTagStatusCodesToIgnoreForQuery = Collections.emptyList();
+
+  @JsonProperty
+  @Valid
   DynamicRestDeprecationConfiguration restDeprecation = new DynamicRestDeprecationConfiguration(Map.of());
 
   public Optional<DynamicExperimentEnrollmentConfiguration> getExperimentEnrollmentConfiguration(
@@ -114,4 +118,8 @@ public class DynamicConfiguration {
     return restDeprecation;
   }
 
+
+  public List<Integer> getExtTagStatusCodesToIgnoreForQuery() {
+    return extTagStatusCodesToIgnoreForQuery;
+  }
 }

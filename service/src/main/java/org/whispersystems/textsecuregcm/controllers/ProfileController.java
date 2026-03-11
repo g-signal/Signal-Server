@@ -68,6 +68,8 @@ import org.whispersystems.textsecuregcm.badges.ProfileBadgeConverter;
 import org.whispersystems.textsecuregcm.configuration.BadgeConfiguration;
 import org.whispersystems.textsecuregcm.configuration.BadgesConfiguration;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
+import org.whispersystems.textsecuregcm.ext_tag.ExtTag;
+import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
 import org.whispersystems.textsecuregcm.entities.BaseProfileResponse;
 import org.whispersystems.textsecuregcm.entities.BatchIdentityCheckRequest;
 import org.whispersystems.textsecuregcm.entities.BatchIdentityCheckResponse;
@@ -107,6 +109,7 @@ public class ProfileController {
   private final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager;
   private final ProfileBadgeConverter profileBadgeConverter;
   private final Map<String, BadgeConfiguration> badgeConfigurationMap;
+  private final ExtTagClient extTagClient;
 
   private final PolicySigner policySigner;
   private final PostPolicyGenerator policyGenerator;
@@ -128,6 +131,7 @@ public class ProfileController {
       DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager,
       ProfileBadgeConverter profileBadgeConverter,
       BadgesConfiguration badgesConfiguration,
+      ExtTagClient extTagClient,
       PostPolicyGenerator policyGenerator,
       PolicySigner policySigner,
       ServerSecretParams serverSecretParams,
@@ -141,6 +145,7 @@ public class ProfileController {
     this.profileBadgeConverter = profileBadgeConverter;
     this.badgeConfigurationMap = badgesConfiguration.getBadges().stream().collect(Collectors.toMap(
         BadgeConfiguration::getId, Function.identity()));
+    this.extTagClient = extTagClient;
     this.serverSecretParams = serverSecretParams;
     this.zkProfileOperations = zkProfileOperations;
     this.policyGenerator = policyGenerator;
@@ -442,6 +447,8 @@ public class ProfileController {
       final boolean isSelf,
       final ContainerRequestContext containerRequestContext) {
 
+    final List<ExtTag> extTags = ProfileHelper.queryExternalTags(extTagClient, account.getUuid());
+
     return new BaseProfileResponse(account.getIdentityKey(IdentityType.ACI),
         account.getUnidentifiedAccessKey().map(UnidentifiedAccessChecksum::generateFor).orElse(null),
         account.isUnrestrictedUnidentifiedAccess(),
@@ -450,15 +457,19 @@ public class ProfileController {
             HeaderUtils.getAcceptableLanguagesForRequest(containerRequestContext),
             account.getBadges(),
             isSelf),
+        extTags,
         new AciServiceIdentifier(account.getUuid()));
   }
 
   private BaseProfileResponse buildBaseProfileResponseForPhoneNumberIdentity(final Account account) {
+    final List<ExtTag> extTags = ProfileHelper.queryExternalTags(extTagClient, account.getUuid());
+
     return new BaseProfileResponse(account.getIdentityKey(IdentityType.PNI),
         null,
         false,
         getAccountCapabilities(account),
         Collections.emptyList(),
+        extTags,
         new PniServiceIdentifier(account.getPhoneNumberIdentifier()));
   }
 

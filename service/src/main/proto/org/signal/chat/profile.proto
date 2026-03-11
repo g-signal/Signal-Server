@@ -246,6 +246,10 @@ message GetUnversionedProfileResponse {
    * A list of badges associated with the account.
    */
   repeated Badge badges = 5;
+  /**
+   * A list of ext tags associated with the account.
+   */
+  repeated ExtTag ext_tags = 6;
 }
 
 message GetExpiringProfileKeyCredentialRequest {
@@ -315,6 +319,21 @@ message ProfileAvatarUploadAttributes {
    * A digital signature on the S3 policy.
    */
   bytes signature = 7;
+}
+
+message ExtTag {
+  /**
+   * Tag display type.
+   */
+  int32 type = 1;
+  /**
+   * Tag display text.
+   */
+  string text = 2;
+  /**
+   * Tag CSS color.
+   */
+  string css_color = 3;
 }
 
 message Badge {
