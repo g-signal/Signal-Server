@@ -14,7 +14,7 @@ COPY spam-filter/ spam-filter/
 COPY websocket-resources/ websocket-resources/
 
 
-RUN mvn clean package -DskipTests
+RUN mvn clean package -DskipTests verify
 
 
 
