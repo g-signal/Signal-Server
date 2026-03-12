@@ -134,6 +134,7 @@ import org.whispersystems.textsecuregcm.currency.FixerClient;
 import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
 import org.whispersystems.textsecuregcm.filters.ExternalRequestFilter;
+import org.whispersystems.textsecuregcm.filters.GExtAccountBlockFilter;
 import org.whispersystems.textsecuregcm.filters.RemoteAddressFilter;
 import org.whispersystems.textsecuregcm.filters.RemoteDeprecationFilter;
 import org.whispersystems.textsecuregcm.filters.RequestStatisticsFilter;
@@ -1016,6 +1017,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     // compute content lengths without it
     environment.jersey().register(new BufferingInterceptor());
     environment.jersey().register(new RestDeprecationFilter(dynamicConfigurationManager, experimentEnrollmentManager));
+    environment.jersey().register(new GExtAccountBlockFilter(dynamicConfigurationManager, accountsManager));
 
     environment.jersey().register(new VirtualExecutorServiceProvider("managed-async-virtual-thread-"));
     environment.jersey().register(new RateLimitByIpFilter(rateLimiters));
@@ -1038,6 +1040,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             messageDeliveryScheduler, clientReleaseManager, messageDeliveryLoopMonitor, experimentEnrollmentManager));
     webSocketEnvironment.jersey().register(new RateLimitByIpFilter(rateLimiters));
     webSocketEnvironment.jersey().register(new RequestStatisticsFilter(TrafficSource.WEBSOCKET));
+    webSocketEnvironment.jersey().register(new GExtAccountBlockFilter(dynamicConfigurationManager, accountsManager));
     webSocketEnvironment.jersey().register(MultiRecipientMessageProvider.class);
     webSocketEnvironment.jersey().register(new MetricsApplicationEventListener(TrafficSource.WEBSOCKET, clientReleaseManager));
     webSocketEnvironment.jersey().register(new KeepAliveController(redisMessageAvailabilityManager));

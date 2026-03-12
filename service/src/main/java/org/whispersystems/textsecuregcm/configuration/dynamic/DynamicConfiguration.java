@@ -68,6 +68,10 @@ public class DynamicConfiguration {
   @Valid
   DynamicRestDeprecationConfiguration restDeprecation = new DynamicRestDeprecationConfiguration(Map.of());
 
+  @JsonProperty
+  @Valid
+  DynamicGExtAccountBlockConfiguration gextAccountBlock = new DynamicGExtAccountBlockConfiguration();
+
   public Optional<DynamicExperimentEnrollmentConfiguration> getExperimentEnrollmentConfiguration(
       final String experimentName) {
     return Optional.ofNullable(experiments.get(experimentName));
@@ -121,5 +125,9 @@ public class DynamicConfiguration {
 
   public List<Integer> getExtTagStatusCodesToIgnoreForQuery() {
     return extTagStatusCodesToIgnoreForQuery;
+  }
+
+  public DynamicGExtAccountBlockConfiguration getGextAccountBlockConfiguration() {
+    return gextAccountBlock;
   }
 }
