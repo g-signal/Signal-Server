@@ -15,13 +15,11 @@ import org.whispersystems.textsecuregcm.configuration.ExtTagConfiguration;
 import org.whispersystems.textsecuregcm.http.FaultTolerantHttpClient;
 import org.whispersystems.textsecuregcm.util.HttpUtils;
 
-import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateException;
 import java.time.Duration;
 import java.util.Collections;
@@ -70,8 +68,8 @@ public class ExtTagClient {
                 .withName("ext-tag")
                 .withSecurityProtocol(FaultTolerantHttpClient.SECURITY_PROTOCOL_TLS_1_2);
 
-        if (configuration.svrCaCertificatesEnabled()) {
-            fBuilder.withTrustedServerCertificates(configuration.svrCaCertificates().toArray(new String[0]));
+        if (configuration.extTagCaCertificatesEnabled()) {
+            fBuilder.withTrustedServerCertificates(configuration.extTagCaCertificates().toArray(new String[0]));
         }
         this.httpClient = fBuilder.build();
     }

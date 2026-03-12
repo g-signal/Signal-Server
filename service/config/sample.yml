@@ -569,4 +569,4 @@ idlePrimaryDeviceReminder:
 
 extTag:
   uri: a
-  svrCaCertificatesEnabled: false
+  extTagCaCertificatesEnabled: false
