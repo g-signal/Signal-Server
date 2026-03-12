@@ -117,6 +117,7 @@ import org.whispersystems.textsecuregcm.controllers.KeysController;
 import org.whispersystems.textsecuregcm.controllers.MessageController;
 import org.whispersystems.textsecuregcm.controllers.OneTimeDonationController;
 import org.whispersystems.textsecuregcm.controllers.PaymentsController;
+import org.whispersystems.textsecuregcm.controllers.GExtGroupProfileController;
 import org.whispersystems.textsecuregcm.controllers.ProfileController;
 import org.whispersystems.textsecuregcm.controllers.ProvisioningController;
 import org.whispersystems.textsecuregcm.controllers.RegistrationController;
@@ -147,6 +148,7 @@ import org.whispersystems.textsecuregcm.grpc.KeysAnonymousGrpcService;
 import org.whispersystems.textsecuregcm.grpc.KeysGrpcService;
 import org.whispersystems.textsecuregcm.grpc.PaymentsGrpcService;
 import org.whispersystems.textsecuregcm.grpc.ProfileAnonymousGrpcService;
+import org.whispersystems.textsecuregcm.grpc.GExtGroupProfileGrpcService;
 import org.whispersystems.textsecuregcm.grpc.ProfileGrpcService;
 import org.whispersystems.textsecuregcm.grpc.RequestAttributesInterceptor;
 import org.whispersystems.textsecuregcm.grpc.ValidatingInterceptor;
@@ -908,7 +910,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             .addService(ExternalServiceCredentialsGrpcService.createForAllExternalServices(config, rateLimiters))
             .addService(new KeysGrpcService(accountsManager, keysManager, rateLimiters))
             .addService(new ProfileGrpcService(clock, accountsManager, profilesManager, dynamicConfigurationManager,
-                config.getBadges(), profileCdnPolicyGenerator, profileCdnPolicySigner, profileBadgeConverter, rateLimiters, zkProfileOperations, extTagClient));
+                config.getBadges(), profileCdnPolicyGenerator, profileCdnPolicySigner, profileBadgeConverter, rateLimiters, zkProfileOperations, extTagClient))
+            .addService(new GExtGroupProfileGrpcService(extTagClient));
       }
     };
 
@@ -1144,6 +1147,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         new ProfileController(clock, rateLimiters, accountsManager, profilesManager, dynamicConfigurationManager,
             profileBadgeConverter, config.getBadges(), extTagClient, profileCdnPolicyGenerator, profileCdnPolicySigner,
             zkSecretParams, zkProfileOperations, batchIdentityCheckExecutor),
+        new GExtGroupProfileController(extTagClient),
         new ProvisioningController(rateLimiters, provisioningManager),
         new RegistrationController(accountsManager, phoneVerificationTokenManager, registrationLockVerificationManager,
             rateLimiters),

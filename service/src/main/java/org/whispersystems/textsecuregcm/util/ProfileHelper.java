@@ -116,4 +116,23 @@ public class ProfileHelper {
       return List.of();
     }
   }
+
+  /**
+   * Query external tags for a group using ExtTagClient
+   * Returns empty list if query fails to maintain availability
+   * @param extTagClient the ExtTagClient instance
+   * @param groupIdentifier the 32-byte GroupIdentifier (hex encoded or base64)
+   */
+  public static List<ExtTag> queryGroupTags(final ExtTagClient extTagClient, final String groupIdentifier) {
+    if (extTagClient == null || groupIdentifier == null || groupIdentifier.isEmpty()) {
+      return List.of();
+    }
+
+    try {
+      return extTagClient.queryGroupTags(groupIdentifier).join();
+    } catch (Exception e) {
+      // Log error but don't fail the request - tags are supplementary data
+      return List.of();
+    }
+  }
 }

@@ -1,0 +1,44 @@
+/*
+ * Copyright 2024 Signal Messenger, LLC
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+
+package org.signal.chat.gext;
+
+import "org/signal/chat/common.proto";
+import "org/signal/chat/profile.proto";
+import "org/signal/chat/require.proto";
+
+/**
+ * Provides methods for querying group profile information (GExt extended interface).
+ */
+service GExtGroupProfile {
+
+  option (require.auth) = AUTH_ONLY_AUTHENTICATED;
+
+  /**
+   * Retrieves group profile (including tags) by its GroupIdentifier.
+   *
+   * This RPC may fail with an `INVALID_ARGUMENT` status if the group identifier
+   * is malformed or empty.
+   */
+  rpc GetGroupProfile(GetGroupProfileRequest) returns (GetGroupProfileResponse) {}
+}
+
+message GetGroupProfileRequest {
+  /**
+   * The group identifier (32-byte GroupIdentifier, hex encoded).
+   */
+  string group_id = 1;
+}
+
+message GetGroupProfileResponse {
+  /**
+   * A list of ext tags associated with the group profile.
+   */
+  repeated profile.ExtTag ext_tags = 1;
+}
