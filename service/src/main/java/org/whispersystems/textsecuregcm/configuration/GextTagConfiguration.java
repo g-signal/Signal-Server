@@ -10,14 +10,14 @@ import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
 
-public record ExtTagConfiguration(
+public record GextTagConfiguration(
     @NotBlank String uri,
     @NotNull Boolean extTagCaCertificatesEnabled,
     List<@NotBlank String> extTagCaCertificates,
     @NotNull @Valid CircuitBreakerConfiguration circuitBreaker,
     @NotNull @Valid RetryConfiguration retry) {
 
-  public ExtTagConfiguration {
+  public GextTagConfiguration {
     if (circuitBreaker == null) {
       circuitBreaker = new CircuitBreakerConfiguration();
     }

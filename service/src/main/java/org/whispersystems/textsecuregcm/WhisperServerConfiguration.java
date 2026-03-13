@@ -125,7 +125,7 @@ public class WhisperServerConfiguration extends Configuration {
   @NotNull
   @Valid
   @JsonProperty
-  private ExtTagConfiguration extTag;
+  private GextTagConfiguration gextTag;
 
   @NotNull
   @Valid
@@ -366,8 +366,8 @@ public class WhisperServerConfiguration extends Configuration {
     return svrb;
   }
 
-  public ExtTagConfiguration getExtTag() {
-    return extTag;
+  public GextTagConfiguration getGextTag() {
+    return gextTag;
   }
 
   public DirectoryV2Configuration getDirectoryV2Configuration() {

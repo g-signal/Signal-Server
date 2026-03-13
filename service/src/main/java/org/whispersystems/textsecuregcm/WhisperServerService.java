@@ -94,7 +94,6 @@ import org.whispersystems.textsecuregcm.captcha.CaptchaChecker;
 import org.whispersystems.textsecuregcm.captcha.CaptchaClient;
 import org.whispersystems.textsecuregcm.captcha.RegistrationCaptchaManager;
 import org.whispersystems.textsecuregcm.captcha.ShortCodeExpander;
-import org.whispersystems.textsecuregcm.configuration.ExtTagConfiguration;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretStore;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretsModule;
@@ -620,7 +619,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
 
     GextTagClient extTagClient = new GextTagClient(extTagClientExecutor,
             extTagClientRetryExecutor,
-            config.getExtTag(),
+            config.getGextTag(),
             () -> dynamicConfigurationManager.getConfiguration().getExtTagStatusCodesToIgnoreForQuery());
 
     SecureValueRecoveryClient secureValueRecoveryBClient = new SecureValueRecoveryClient(

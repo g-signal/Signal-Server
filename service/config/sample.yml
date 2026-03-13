@@ -567,6 +567,6 @@ idlePrimaryDeviceReminder:
   minIdleDuration: P30D
 
 
-extTag:
+gextTag:
   uri: a
   extTagCaCertificatesEnabled: false
