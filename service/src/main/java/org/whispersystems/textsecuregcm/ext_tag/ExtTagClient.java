@@ -87,7 +87,7 @@ public class ExtTagClient {
     public CompletableFuture<List<ExtTag>> queryAccountTags(final String userIdentifier) {
         try {
             URI uri = URI.create(accountTagQueryUri.toString() + "?userIdentifier="+ URLEncoder.encode(userIdentifier, "UTF-8"));
-
+            logger.debug("queryAccountTags:" + uri);
             final HttpRequest request = HttpRequest.newBuilder()
                     .uri(uri)
                     .GET()
@@ -129,6 +129,7 @@ public class ExtTagClient {
     public CompletableFuture<List<ExtTag>> queryGroupTags(final String groupIdentifier) {
         try {
             URI uri = URI.create(groupTagQueryUri.toString() + "?groupIdentifier="+ URLEncoder.encode(groupIdentifier, "UTF-8"));
+            logger.debug("queryGroupTags:" + uri);
 
             final HttpRequest request = HttpRequest.newBuilder()
                     .uri(uri)
