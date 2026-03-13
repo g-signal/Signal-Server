@@ -15,7 +15,7 @@ import java.util.UUID;
 import io.grpc.StatusException;
 import org.signal.chat.profile.Badge;
 import org.signal.chat.profile.BadgeSvg;
-import org.signal.chat.profile.ExtTag;
+import org.signal.chat.profile.GextTag;
 import org.signal.chat.profile.GetExpiringProfileKeyCredentialResponse;
 import org.signal.chat.profile.GetUnversionedProfileResponse;
 import org.signal.chat.profile.GetVersionedProfileResponse;
@@ -98,55 +98,55 @@ public class ProfileGrpcHelper {
   }
 
   @VisibleForTesting
-  static List<ExtTag> buildExtTags(final List<org.whispersystems.textsecuregcm.ext_tag.ExtTag> extTags) {
-    final ArrayList<ExtTag> grpcExtTags = new ArrayList<>();
-    for (final org.whispersystems.textsecuregcm.ext_tag.ExtTag extTag : extTags) {
-      ExtTag.Builder builder = ExtTag.newBuilder()
-          .setText(extTag.getText() != null ? extTag.getText() : "");
+  static List<GextTag> buildGextTags(final List<org.whispersystems.textsecuregcm.ext_tag.GextTag> gextTags) {
+    final ArrayList<GextTag> grpcGextTags = new ArrayList<>();
+    for (final org.whispersystems.textsecuregcm.ext_tag.GextTag gextTag : gextTags) {
+      GextTag.Builder builder = GextTag.newBuilder()
+          .setText(gextTag.getText() != null ? gextTag.getText() : "");
 
-      if (extTag.getTagId() != null) {
-        builder.setTagId(extTag.getTagId());
+      if (gextTag.getTagId() != null) {
+        builder.setTagId(gextTag.getTagId());
       }
 
-      if (extTag.getTagType() != null) {
-        builder.setTagType(extTag.getTagType());
+      if (gextTag.getTagType() != null) {
+        builder.setTagType(gextTag.getTagType());
       }
 
-      if (extTag.getImgBase64() != null) {
-        builder.setImgBase64(extTag.getImgBase64());
+      if (gextTag.getImgBase64() != null) {
+        builder.setImgBase64(gextTag.getImgBase64());
       }
 
-      if (extTag.getCssBackgroundColor() != null) {
-        builder.setCssBackgroundColor(extTag.getCssBackgroundColor());
+      if (gextTag.getCssBackgroundColor() != null) {
+        builder.setCssBackgroundColor(gextTag.getCssBackgroundColor());
       }
 
-      if (extTag.getCssColor() != null) {
-        builder.setCssColor(extTag.getCssColor());
+      if (gextTag.getCssColor() != null) {
+        builder.setCssColor(gextTag.getCssColor());
       }
 
-      if (extTag.getCssOpacity() != null) {
-        builder.setCssOpacity(extTag.getCssOpacity());
+      if (gextTag.getCssOpacity() != null) {
+        builder.setCssOpacity(gextTag.getCssOpacity());
       }
 
-      if (extTag.getCssBorderWidth() != null) {
-        builder.setCssBorderWidth(extTag.getCssBorderWidth());
+      if (gextTag.getCssBorderWidth() != null) {
+        builder.setCssBorderWidth(gextTag.getCssBorderWidth());
       }
 
-      if (extTag.getCssBorderRadius() != null) {
-        builder.setCssBorderRadius(extTag.getCssBorderRadius());
+      if (gextTag.getCssBorderRadius() != null) {
+        builder.setCssBorderRadius(gextTag.getCssBorderRadius());
       }
 
-      if (extTag.getCssBorderColor() != null) {
-        builder.setCssBorderColor(extTag.getCssBorderColor());
+      if (gextTag.getCssBorderColor() != null) {
+        builder.setCssBorderColor(gextTag.getCssBorderColor());
       }
 
-      if (extTag.getCssBorderStyle() != null) {
-        builder.setCssBorderStyle(extTag.getCssBorderStyle());
+      if (gextTag.getCssBorderStyle() != null) {
+        builder.setCssBorderStyle(gextTag.getCssBorderStyle());
       }
 
-      grpcExtTags.add(builder.build());
+      grpcGextTags.add(builder.build());
     }
-    return grpcExtTags;
+    return grpcGextTags;
   }
 
   static GetUnversionedProfileResponse buildUnversionedProfileResponse(
@@ -173,9 +173,9 @@ public class ProfileGrpcHelper {
             .ifPresent(responseBuilder::setUnidentifiedAccess);
 
         // Query external tags for this account
-        final List<org.whispersystems.textsecuregcm.ext_tag.ExtTag> extTags =
+        final List<org.whispersystems.textsecuregcm.ext_tag.GextTag> gextTags =
                 ProfileHelper.queryExternalTags(extTagClient, targetAccount.getUuid());
-        responseBuilder.addAllExtTags(buildExtTags(extTags));
+        responseBuilder.addAllGextTags(buildGextTags(gextTags));
       }
       case PNI -> responseBuilder.setUnrestrictedUnidentifiedAccess(false);
     }

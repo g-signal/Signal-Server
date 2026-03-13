@@ -9,7 +9,7 @@ import io.grpc.Status;
 import org.signal.chat.gext.GetGroupProfileRequest;
 import org.signal.chat.gext.GetGroupProfileResponse;
 import org.signal.chat.gext.ReactorGExtGroupProfileGrpc;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
+import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.util.ProfileHelper;
 import reactor.core.publisher.Mono;
 
@@ -17,9 +17,9 @@ import java.util.List;
 
 public class GExtGroupProfileGrpcService extends ReactorGExtGroupProfileGrpc.GExtGroupProfileImplBase {
 
-  private final ExtTagClient extTagClient;
+  private final GextTagClient extTagClient;
 
-  public GExtGroupProfileGrpcService(final ExtTagClient extTagClient) {
+  public GExtGroupProfileGrpcService(final GextTagClient extTagClient) {
     this.extTagClient = extTagClient;
   }
 
@@ -34,13 +34,13 @@ public class GExtGroupProfileGrpcService extends ReactorGExtGroupProfileGrpc.GEx
             .asRuntimeException();
       }
 
-      final List<org.whispersystems.textsecuregcm.ext_tag.ExtTag> extTags =
+      final List<org.whispersystems.textsecuregcm.ext_tag.GextTag> extTags =
           ProfileHelper.queryGroupTags(extTagClient, groupId);
 
       final GetGroupProfileResponse.Builder responseBuilder = GetGroupProfileResponse.newBuilder();
 
-      for (org.whispersystems.textsecuregcm.ext_tag.ExtTag tag : extTags) {
-        org.signal.chat.profile.ExtTag.Builder tagBuilder = org.signal.chat.profile.ExtTag.newBuilder();
+      for (org.whispersystems.textsecuregcm.ext_tag.GextTag tag : extTags) {
+        org.signal.chat.profile.GextTag.Builder tagBuilder = org.signal.chat.profile.GextTag.newBuilder();
 
         if (tag.getTagId() != null) {
           tagBuilder.setTagId(tag.getTagId());
@@ -76,7 +76,7 @@ public class GExtGroupProfileGrpcService extends ReactorGExtGroupProfileGrpc.GEx
           tagBuilder.setCssBorderStyle(tag.getCssBorderStyle());
         }
 
-        responseBuilder.addExtTags(tagBuilder.build());
+        responseBuilder.addGextTags(tagBuilder.build());
       }
 
       return responseBuilder.build();

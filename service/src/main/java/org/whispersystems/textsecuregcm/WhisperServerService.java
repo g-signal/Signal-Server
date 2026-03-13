@@ -132,7 +132,7 @@ import org.whispersystems.textsecuregcm.currency.CoinGeckoClient;
 import org.whispersystems.textsecuregcm.currency.CurrencyConversionManager;
 import org.whispersystems.textsecuregcm.currency.FixerClient;
 import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
+import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.filters.ExternalRequestFilter;
 import org.whispersystems.textsecuregcm.filters.GExtAccountBlockFilter;
 import org.whispersystems.textsecuregcm.filters.RemoteAddressFilter;
@@ -618,7 +618,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         config.getSvr2Configuration(),
         () -> dynamicConfigurationManager.getConfiguration().getSvr2StatusCodesToIgnoreForAccountDeletion());
 
-    ExtTagClient extTagClient = new ExtTagClient(extTagClientExecutor,
+    GextTagClient extTagClient = new GextTagClient(extTagClientExecutor,
             extTagClientRetryExecutor,
             config.getExtTag(),
             () -> dynamicConfigurationManager.getConfiguration().getExtTagStatusCodesToIgnoreForQuery());

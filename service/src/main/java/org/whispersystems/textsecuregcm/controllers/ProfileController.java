@@ -68,8 +68,8 @@ import org.whispersystems.textsecuregcm.badges.ProfileBadgeConverter;
 import org.whispersystems.textsecuregcm.configuration.BadgeConfiguration;
 import org.whispersystems.textsecuregcm.configuration.BadgesConfiguration;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTag;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
+import org.whispersystems.textsecuregcm.ext_tag.GextTag;
+import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.entities.BaseProfileResponse;
 import org.whispersystems.textsecuregcm.entities.BatchIdentityCheckRequest;
 import org.whispersystems.textsecuregcm.entities.BatchIdentityCheckResponse;
@@ -109,7 +109,7 @@ public class ProfileController {
   private final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager;
   private final ProfileBadgeConverter profileBadgeConverter;
   private final Map<String, BadgeConfiguration> badgeConfigurationMap;
-  private final ExtTagClient extTagClient;
+  private final GextTagClient extTagClient;
 
   private final PolicySigner policySigner;
   private final PostPolicyGenerator policyGenerator;
@@ -131,7 +131,7 @@ public class ProfileController {
       DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager,
       ProfileBadgeConverter profileBadgeConverter,
       BadgesConfiguration badgesConfiguration,
-      ExtTagClient extTagClient,
+      GextTagClient extTagClient,
       PostPolicyGenerator policyGenerator,
       PolicySigner policySigner,
       ServerSecretParams serverSecretParams,
@@ -447,7 +447,7 @@ public class ProfileController {
       final boolean isSelf,
       final ContainerRequestContext containerRequestContext) {
 
-    final List<ExtTag> extTags = ProfileHelper.queryExternalTags(extTagClient, account.getUuid());
+    final List<GextTag> extTags = ProfileHelper.queryExternalTags(extTagClient, account.getUuid());
 
     return new BaseProfileResponse(account.getIdentityKey(IdentityType.ACI),
         account.getUnidentifiedAccessKey().map(UnidentifiedAccessChecksum::generateFor).orElse(null),
@@ -462,7 +462,7 @@ public class ProfileController {
   }
 
   private BaseProfileResponse buildBaseProfileResponseForPhoneNumberIdentity(final Account account) {
-    final List<ExtTag> extTags = ProfileHelper.queryExternalTags(extTagClient, account.getUuid());
+    final List<GextTag> extTags = ProfileHelper.queryExternalTags(extTagClient, account.getUuid());
 
     return new BaseProfileResponse(account.getIdentityKey(IdentityType.PNI),
         null,

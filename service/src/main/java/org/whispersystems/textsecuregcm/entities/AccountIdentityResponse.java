@@ -11,7 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.UUID;
 import javax.annotation.Nullable;
 import org.whispersystems.textsecuregcm.util.ByteArrayBase64UrlAdapter;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTag;
+import org.whispersystems.textsecuregcm.ext_tag.GextTag;
 import java.util.List;
 
 public record AccountIdentityResponse(
@@ -39,5 +39,5 @@ public record AccountIdentityResponse(
     Entitlements entitlements,
 
     @Schema(description = "external tags associated with this account")
-    @Nullable List<ExtTag> extTags) {
+    @Nullable List<GextTag> gextTags) {
 }

@@ -89,7 +89,7 @@ import org.whispersystems.textsecuregcm.entities.CreateProfileRequest;
 import org.whispersystems.textsecuregcm.entities.ExpiringProfileKeyCredentialProfileResponse;
 import org.whispersystems.textsecuregcm.entities.ProfileAvatarUploadAttributes;
 import org.whispersystems.textsecuregcm.entities.VersionedProfileResponse;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
+import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.identity.AciServiceIdentifier;
 import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.identity.PniServiceIdentifier;
@@ -121,7 +121,7 @@ class ProfileControllerTest {
   private static final TestClock clock = TestClock.now();
   private static final AccountsManager accountsManager = mock(AccountsManager.class);
 
-  private static final ExtTagClient extTagClient = mock(ExtTagClient.class);
+  private static final GextTagClient extTagClient = mock(GextTagClient.class);
   private static final ProfilesManager profilesManager = mock(ProfilesManager.class);
   private static final RateLimiters rateLimiters = mock(RateLimiters.class);
   private static final RateLimiter rateLimiter = mock(RateLimiter.class);

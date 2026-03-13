@@ -13,7 +13,7 @@ import java.util.Objects;
 /**
  * Represents an external tag with associated metadata
  */
-public class ExtTag {
+public class GextTag {
 
     private String tagId;
     private Integer tagType;
@@ -30,7 +30,7 @@ public class ExtTag {
 
 
     @JsonCreator
-    public ExtTag(
+    public GextTag(
             @JsonProperty("tagId") final String tagId,
             @JsonProperty("tagType") final Integer tagType,
             @JsonProperty("text") final String text,
@@ -56,7 +56,7 @@ public class ExtTag {
     }
 
     // Constructor for backward compatibility
-    public ExtTag(Integer tagType, String text, String cssColor) {
+    public GextTag(Integer tagType, String text, String cssColor) {
         this(null, tagType, text, null, null, cssColor, null, null, null, null, null);
     }
 
@@ -107,18 +107,18 @@ public class ExtTag {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        ExtTag extTag = (ExtTag) o;
-        return Objects.equals(tagId, extTag.tagId) &&
-                Objects.equals(tagType, extTag.tagType) &&
-                Objects.equals(text, extTag.text) &&
-                Objects.equals(imgBase64, extTag.imgBase64) &&
-                Objects.equals(cssBackgroundColor, extTag.cssBackgroundColor) &&
-                Objects.equals(cssColor, extTag.cssColor) &&
-                Objects.equals(cssOpacity, extTag.cssOpacity) &&
-                Objects.equals(cssBorderWidth, extTag.cssBorderWidth) &&
-                Objects.equals(cssBorderRadius, extTag.cssBorderRadius) &&
-                Objects.equals(cssBorderColor, extTag.cssBorderColor) &&
-                Objects.equals(cssBorderStyle, extTag.cssBorderStyle);
+        GextTag gextTag = (GextTag) o;
+        return Objects.equals(tagId, gextTag.tagId) &&
+                Objects.equals(tagType, gextTag.tagType) &&
+                Objects.equals(text, gextTag.text) &&
+                Objects.equals(imgBase64, gextTag.imgBase64) &&
+                Objects.equals(cssBackgroundColor, gextTag.cssBackgroundColor) &&
+                Objects.equals(cssColor, gextTag.cssColor) &&
+                Objects.equals(cssOpacity, gextTag.cssOpacity) &&
+                Objects.equals(cssBorderWidth, gextTag.cssBorderWidth) &&
+                Objects.equals(cssBorderRadius, gextTag.cssBorderRadius) &&
+                Objects.equals(cssBorderColor, gextTag.cssBorderColor) &&
+                Objects.equals(cssBorderStyle, gextTag.cssBorderStyle);
     }
 
     @Override
@@ -128,7 +128,7 @@ public class ExtTag {
 
     @Override
     public String toString() {
-        return "ExtTag{" +
+        return "GextTag{" +
                 "tagId=" + tagId +
                 ", tagType=" + tagType +
                 ", text='" + text + '\'' +
@@ -144,7 +144,7 @@ public class ExtTag {
     }
 
     /**
-     * Builder class for ExtTag
+     * Builder class for GextTag
      */
     public static class Builder {
         private String tagId;
@@ -214,8 +214,8 @@ public class ExtTag {
             return this;
         }
 
-        public ExtTag build() {
-            return new ExtTag(tagId, tagType, text, imgBase64, cssBackgroundColor, cssColor, cssOpacity, cssBorderWidth, cssBorderRadius, cssBorderColor, cssBorderStyle);
+        public GextTag build() {
+            return new GextTag(tagId, tagType, text, imgBase64, cssBackgroundColor, cssColor, cssOpacity, cssBorderWidth, cssBorderRadius, cssBorderColor, cssBorderStyle);
         }
     }
 }

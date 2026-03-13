@@ -6,12 +6,12 @@
 package org.whispersystems.textsecuregcm.entities;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTag;
+import org.whispersystems.textsecuregcm.ext_tag.GextTag;
 
 import java.util.List;
 
 public record GExtGroupProfile(
-    @JsonProperty("extTags")
-    List<ExtTag> extTags
+    @JsonProperty("gextTags")
+    List<GextTag> gextTags
 ) {
 }

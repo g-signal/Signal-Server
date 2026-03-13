@@ -18,7 +18,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.entities.GExtGroupProfile;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
+import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.util.ProfileHelper;
 
 import java.util.List;
@@ -27,9 +27,9 @@ import java.util.List;
 @Tag(name = "GExtGroupProfile")
 public class GExtGroupProfileController {
 
-  private final ExtTagClient extTagClient;
+  private final GextTagClient extTagClient;
 
-  public GExtGroupProfileController(final ExtTagClient extTagClient) {
+  public GExtGroupProfileController(final GextTagClient extTagClient) {
     this.extTagClient = extTagClient;
   }
 

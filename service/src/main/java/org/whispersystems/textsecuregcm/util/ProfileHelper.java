@@ -12,8 +12,8 @@ import org.whispersystems.textsecuregcm.configuration.BadgeConfiguration;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.storage.AccountBadge;
 import org.whispersystems.textsecuregcm.storage.VersionedProfile;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTag;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
+import org.whispersystems.textsecuregcm.ext_tag.GextTag;
+import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import javax.annotation.Nullable;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -101,10 +101,10 @@ public class ProfileHelper {
   }
 
   /**
-   * Query external tags for a user account using ExtTagClient
+   * Query external tags for a user account using GextTagClient
    * Returns empty list if query fails to maintain availability
    */
-  public static List<ExtTag> queryExternalTags(final ExtTagClient extTagClient, final UUID accountIdentifier) {
+  public static List<GextTag> queryExternalTags(final GextTagClient extTagClient, final UUID accountIdentifier) {
     if (extTagClient == null) {
       return List.of();
     }
@@ -118,12 +118,12 @@ public class ProfileHelper {
   }
 
   /**
-   * Query external tags for a group using ExtTagClient
+   * Query external tags for a group using GextTagClient
    * Returns empty list if query fails to maintain availability
-   * @param extTagClient the ExtTagClient instance
+   * @param extTagClient the GextTagClient instance
    * @param groupIdentifier the 32-byte GroupIdentifier (hex encoded or base64)
    */
-  public static List<ExtTag> queryGroupTags(final ExtTagClient extTagClient, final String groupIdentifier) {
+  public static List<GextTag> queryGroupTags(final GextTagClient extTagClient, final String groupIdentifier) {
     if (extTagClient == null || groupIdentifier == null || groupIdentifier.isEmpty()) {
       return List.of();
     }

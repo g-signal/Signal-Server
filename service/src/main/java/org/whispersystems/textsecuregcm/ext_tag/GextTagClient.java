@@ -11,7 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.net.HttpHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.whispersystems.textsecuregcm.configuration.ExtTagConfiguration;
+import org.whispersystems.textsecuregcm.configuration.GextTagConfiguration;
 import org.whispersystems.textsecuregcm.http.FaultTolerantHttpClient;
 import org.whispersystems.textsecuregcm.util.HttpUtils;
 
@@ -33,9 +33,9 @@ import java.util.function.Supplier;
 /**
  * A client for communicating with the external tag service
  */
-public class ExtTagClient {
+public class GextTagClient {
 
-    private static final Logger logger = LoggerFactory.getLogger(ExtTagClient.class);
+    private static final Logger logger = LoggerFactory.getLogger(GextTagClient.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final URI accountTagQueryUri;
@@ -46,10 +46,10 @@ public class ExtTagClient {
     static final String ACCOUNT_TAG_QUERY_PATH = "/v1/account/tag/query";
     static final String GROUP_TAG_QUERY_PATH = "/v1/group/tag/query";
 
-    public ExtTagClient(
+    public GextTagClient(
             final Executor executor,
             final ScheduledExecutorService retryExecutor,
-            final ExtTagConfiguration configuration,
+            final GextTagConfiguration configuration,
             Supplier<List<Integer>> allowedQueryErrorStatusCodes)
             throws CertificateException {
 
@@ -77,14 +77,14 @@ public class ExtTagClient {
     /**
      * Query account tags by UUID
      */
-    public CompletableFuture<List<ExtTag>> queryAccountTags(final UUID accountUuid) {
+    public CompletableFuture<List<GextTag>> queryAccountTags(final UUID accountUuid) {
         return queryAccountTags(accountUuid.toString());
     }
 
     /**
      * Query account tags by user identifier
      */
-    public CompletableFuture<List<ExtTag>> queryAccountTags(final String userIdentifier) {
+    public CompletableFuture<List<GextTag>> queryAccountTags(final String userIdentifier) {
         try {
             URI uri = URI.create(accountTagQueryUri.toString() + "?userIdentifier="+ URLEncoder.encode(userIdentifier, "UTF-8"));
             logger.debug("queryAccountTags:" + uri);
@@ -99,26 +99,26 @@ public class ExtTagClient {
                     .thenApply(response -> {
                         if (HttpUtils.isSuccessfulResponse(response.statusCode())) {
                             try {
-                                List<ExtTag> tags = objectMapper.readValue(response.body(), new TypeReference<List<ExtTag>>() {});
+                                List<GextTag> tags = objectMapper.readValue(response.body(), new TypeReference<List<GextTag>>() {});
                                 logger.debug("Successfully retrieved {} tags for account {}", tags.size(), userIdentifier);
                                 return tags;
                             } catch (JsonProcessingException e) {
                                 logger.error("Failed to parse account tags response for identifier {}", userIdentifier, e);
-                                return Collections.<ExtTag>emptyList();
+                                return Collections.<GextTag>emptyList();
                             }
                         }
 
                         logger.warn("Failed to query account tags for identifier {} with status {} and response body: {}",
                                 userIdentifier, response.statusCode(), response.body());
-                        return Collections.<ExtTag>emptyList();
+                        return Collections.<GextTag>emptyList();
                     })
                     .exceptionally(throwable -> {
                         logger.error("Exception occurred while querying account tags for identifier {}", userIdentifier, throwable);
-                        return Collections.<ExtTag>emptyList();
+                        return Collections.<GextTag>emptyList();
                     });
         } catch (Exception e) {
             logger.error("Failed to create request for account tags query for identifier {}", userIdentifier, e);
-            return CompletableFuture.completedFuture(Collections.<ExtTag>emptyList());
+            return CompletableFuture.completedFuture(Collections.<GextTag>emptyList());
         }
     }
 
@@ -126,7 +126,7 @@ public class ExtTagClient {
     /**
      * Query group tags
      */
-    public CompletableFuture<List<ExtTag>> queryGroupTags(final String groupIdentifier) {
+    public CompletableFuture<List<GextTag>> queryGroupTags(final String groupIdentifier) {
         try {
             URI uri = URI.create(groupTagQueryUri.toString() + "?groupIdentifier="+ URLEncoder.encode(groupIdentifier, "UTF-8"));
             logger.debug("queryGroupTags:" + uri);
@@ -142,26 +142,26 @@ public class ExtTagClient {
                     .thenApply(response -> {
                         if (HttpUtils.isSuccessfulResponse(response.statusCode())) {
                             try {
-                                List<ExtTag> tags = objectMapper.readValue(response.body(), new TypeReference<List<ExtTag>>() {});
+                                List<GextTag> tags = objectMapper.readValue(response.body(), new TypeReference<List<GextTag>>() {});
                                 logger.debug("Successfully retrieved {} tags for group {}", tags.size(), groupIdentifier);
                                 return tags;
                             } catch (JsonProcessingException e) {
                                 logger.error("Failed to parse group tags response for group {}", groupIdentifier, e);
-                                return Collections.<ExtTag>emptyList();
+                                return Collections.<GextTag>emptyList();
                             }
                         }
 
                         logger.warn("Failed to query group tags for group {} with status {} and response body: {}",
                                 groupIdentifier, response.statusCode(), response.body());
-                        return Collections.<ExtTag>emptyList();
+                        return Collections.<GextTag>emptyList();
                     })
                     .exceptionally(throwable -> {
                         logger.error("Exception occurred while querying group tags for group {}", groupIdentifier, throwable);
-                        return Collections.<ExtTag>emptyList();
+                        return Collections.<GextTag>emptyList();
                     });
         } catch (Exception e) {
             logger.error("Failed to create request for group tags query for group {}", groupIdentifier, e);
-            return CompletableFuture.completedFuture(Collections.<ExtTag>emptyList());
+            return CompletableFuture.completedFuture(Collections.<GextTag>emptyList());
         }
     }
 

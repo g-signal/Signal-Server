@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.Optional;
 import org.whispersystems.textsecuregcm.entities.AccountIdentityResponse;
 import org.whispersystems.textsecuregcm.entities.Entitlements;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTag;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTagClient;
+import org.whispersystems.textsecuregcm.ext_tag.GextTag;
+import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.DeviceCapability;
 import org.whispersystems.textsecuregcm.util.ProfileHelper;
@@ -21,7 +21,7 @@ public class AccountIdentityResponseBuilder {
   private final Account account;
   private boolean storageCapable;
   private Clock clock;
-  private ExtTagClient extTagClient;
+  private GextTagClient extTagClient;
 
   public AccountIdentityResponseBuilder(Account account) {
     this.account = account;
@@ -39,7 +39,7 @@ public class AccountIdentityResponseBuilder {
     return this;
   }
 
-  public AccountIdentityResponseBuilder extTagClient(ExtTagClient extTagClient) {
+  public AccountIdentityResponseBuilder extTagClient(GextTagClient extTagClient) {
     this.extTagClient = extTagClient;
     return this;
   }
@@ -57,7 +57,7 @@ public class AccountIdentityResponseBuilder {
         .map(bv -> new Entitlements.BackupEntitlement(bv.receiptLevel(), bv.expiration()))
         .orElse(null);
 
-    final List<ExtTag> extTags = extTagClient != null
+    final List<GextTag> extTags = extTagClient != null
         ? ProfileHelper.queryExternalTags(extTagClient, account.getUuid())
         : Collections.emptyList();
 
@@ -75,7 +75,7 @@ public class AccountIdentityResponseBuilder {
     return new AccountIdentityResponseBuilder(account).build();
   }
 
-  public static AccountIdentityResponse fromAccount(final Account account, final ExtTagClient extTagClient) {
+  public static AccountIdentityResponse fromAccount(final Account account, final GextTagClient extTagClient) {
     return new AccountIdentityResponseBuilder(account).extTagClient(extTagClient).build();
   }
 }

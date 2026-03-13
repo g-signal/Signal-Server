@@ -13,7 +13,7 @@ import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.util.ByteArrayBase64WithPaddingAdapter;
 import org.whispersystems.textsecuregcm.util.ServiceIdentifierAdapter;
 import org.whispersystems.textsecuregcm.util.IdentityKeyAdapter;
-import org.whispersystems.textsecuregcm.ext_tag.ExtTag;
+import org.whispersystems.textsecuregcm.ext_tag.GextTag;
 
 import java.util.List;
 import java.util.Map;
@@ -40,7 +40,7 @@ public class BaseProfileResponse {
   private List<Badge> badges;
 
   @JsonProperty
-  private List<ExtTag> extTags;
+  private List<GextTag> gextTags;
 
   @JsonProperty
   @JsonSerialize(using = ServiceIdentifierAdapter.ServiceIdentifierSerializer.class)
@@ -55,7 +55,7 @@ public class BaseProfileResponse {
       final boolean unrestrictedUnidentifiedAccess,
       final Map<String, Boolean> capabilities,
       final List<Badge> badges,
-      final List<ExtTag> extTags,
+      final List<GextTag> gextTags,
       final ServiceIdentifier uuid) {
 
     this.identityKey = identityKey;
@@ -63,7 +63,7 @@ public class BaseProfileResponse {
     this.unrestrictedUnidentifiedAccess = unrestrictedUnidentifiedAccess;
     this.capabilities = capabilities;
     this.badges = badges;
-    this.extTags = extTags;
+    this.gextTags = gextTags;
     this.uuid = uuid;
   }
 
@@ -87,8 +87,8 @@ public class BaseProfileResponse {
     return badges;
   }
 
-  public List<ExtTag> getExtTags() {
-    return extTags;
+  public List<GextTag> getGextTags() {
+    return gextTags;
   }
 
   public ServiceIdentifier getUuid() {

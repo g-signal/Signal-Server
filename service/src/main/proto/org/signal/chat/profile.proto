@@ -247,9 +247,9 @@ message GetUnversionedProfileResponse {
    */
   repeated Badge badges = 5;
   /**
-   * A list of ext tags associated with the account.
+   * A list of gext tags associated with the account.
    */
-  repeated ExtTag ext_tags = 6;
+  repeated GextTag gext_tags = 6;
 }
 
 message GetExpiringProfileKeyCredentialRequest {
@@ -321,7 +321,7 @@ message ProfileAvatarUploadAttributes {
   bytes signature = 7;
 }
 
-message ExtTag {
+message GextTag {
   /**
    * Tag unique identifier.
    */

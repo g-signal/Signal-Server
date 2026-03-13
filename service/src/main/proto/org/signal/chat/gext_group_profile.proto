@@ -38,7 +38,7 @@ message GetGroupProfileRequest {
 
 message GetGroupProfileResponse {
   /**
-   * A list of ext tags associated with the group profile.
+   * A list of gext tags associated with the group profile.
    */
-  repeated profile.ExtTag ext_tags = 1;
+  repeated profile.GextTag gext_tags = 1;
 }
