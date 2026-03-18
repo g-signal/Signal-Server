@@ -5,19 +5,17 @@
 
 package org.whispersystems.textsecuregcm.filters;
 
-import io.dropwizard.auth.Auth;
 import io.micrometer.core.instrument.Metrics;
 import jakarta.annotation.Priority;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.core.Response;
-import java.util.Optional;
+import jakarta.ws.rs.core.SecurityContext;
 import java.util.UUID;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtAccountBlockConfiguration;
-import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.DynamicConfigurationManager;
 
@@ -38,43 +36,40 @@ public class GExtAccountBlockFilter implements ContainerRequestFilter {
 
   @Override
   public void filter(ContainerRequestContext requestContext) {
-    final Optional<AuthenticatedDevice> maybeAuthenticatedDevice =
-        Optional.ofNullable((AuthenticatedDevice) requestContext.getProperty("auth"));
+    final SecurityContext securityContext = requestContext.getSecurityContext();
 
-    if (maybeAuthenticatedDevice.isEmpty()) {
+    if (securityContext == null || securityContext.getUserPrincipal() == null) {
       return;
     }
 
-    final AuthenticatedDevice authenticatedDevice = maybeAuthenticatedDevice.get();
-    final Optional<Account> maybeAccount = accountsManager.getByAccountIdentifier(
-        authenticatedDevice.accountIdentifier());
-
-    if (maybeAccount.isEmpty()) {
+    if (!(securityContext.getUserPrincipal() instanceof AuthenticatedDevice authenticatedDevice)) {
       return;
     }
 
-    final Account account = maybeAccount.get();
     final DynamicGExtAccountBlockConfiguration config =
         dynamicConfigurationManager.getConfiguration().getGextAccountBlockConfiguration();
 
-    if (!config.isGextBlockEnabled()) {
+    if (!config.isEnabled()) {
       return;
     }
 
-    boolean isBlocked = false;
+    final UUID accountUuid = authenticatedDevice.accountIdentifier();
 
-    if (config.getGextBlockedAccountUuids().contains(account.getUuid())) {
-      isBlocked = true;
-    }
-
-    if (config.getGextBlockedPhoneNumbers().contains(account.getNumber())) {
-      isBlocked = true;
-    }
-
-    if (isBlocked) {
+    if (config.getBlockedAccountUuids().contains(accountUuid)) {
       Metrics.counter(BLOCKED_ACCOUNT_COUNTER_NAME,
-          "uuid", account.getUuid().toString()).increment();
+          "uuid", accountUuid.toString(),
+          "reason", "uuid_blocked").increment();
       requestContext.abortWith(Response.status(403).build());
+      return;
     }
+
+    accountsManager.getByAccountIdentifier(accountUuid).ifPresent(account -> {
+      if (config.getBlockedPhoneNumbers().contains(account.getNumber())) {
+        Metrics.counter(BLOCKED_ACCOUNT_COUNTER_NAME,
+            "uuid", accountUuid.toString(),
+            "reason", "phone_blocked").increment();
+        requestContext.abortWith(Response.status(403).build());
+      }
+    });
   }
 }

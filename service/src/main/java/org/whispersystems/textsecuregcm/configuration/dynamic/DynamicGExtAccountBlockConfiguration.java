@@ -1,35 +1,41 @@
-/*
- * Copyright 2025 Signal Messenger, LLC
- * SPDX-License-Identifier: AGPL-3.0-only
- */
-
 package org.whispersystems.textsecuregcm.configuration.dynamic;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public class DynamicGExtAccountBlockConfiguration {
 
   @JsonProperty
-  private List<String> gextBlockedPhoneNumbers = Collections.emptyList();
+  private List<String> blockedPhoneNumbers = Collections.emptyList();
 
   @JsonProperty
-  private List<UUID> gextBlockedAccountUuids = Collections.emptyList();
+  private List<UUID> blockedAccountUuids = Collections.emptyList();
 
   @JsonProperty
-  private boolean gextBlockEnabled = false;
+  private boolean enabled = false;
 
-  public List<String> getGextBlockedPhoneNumbers() {
-    return gextBlockedPhoneNumbers;
+  private Set<String> phoneNumbersSet;
+  private Set<UUID> uuidsSet;
+
+  public Set<String> getBlockedPhoneNumbers() {
+    if (phoneNumbersSet == null) {
+      phoneNumbersSet = Collections.unmodifiableSet(new HashSet<>(blockedPhoneNumbers));
+    }
+    return phoneNumbersSet;
   }
 
-  public List<UUID> getGextBlockedAccountUuids() {
-    return gextBlockedAccountUuids;
+  public Set<UUID> getBlockedAccountUuids() {
+    if (uuidsSet == null) {
+      uuidsSet = Collections.unmodifiableSet(new HashSet<>(blockedAccountUuids));
+    }
+    return uuidsSet;
   }
 
-  public boolean isGextBlockEnabled() {
-    return gextBlockEnabled;
+  public boolean isEnabled() {
+    return enabled;
   }
 }
