@@ -113,7 +113,7 @@ public class ProfileHelper {
       return extTagClient.queryAccountTags(accountIdentifier.toString()).join();
     } catch (Exception e) {
       // Log error but don't fail the profile request - tags are supplementary data
-      return List.of();
+      return null;
     }
   }
 
@@ -132,7 +132,7 @@ public class ProfileHelper {
       return extTagClient.queryGroupTags(groupIdentifier).join();
     } catch (Exception e) {
       // Log error but don't fail the request - tags are supplementary data
-      return List.of();
+      return null;
     }
   }
 }
