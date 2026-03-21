@@ -75,13 +75,6 @@ public class GextTagClient {
     }
 
     /**
-     * Query account tags by UUID
-     */
-    public CompletableFuture<List<GextTag>> queryAccountTags(final UUID accountUuid) {
-        return queryAccountTags(accountUuid.toString());
-    }
-
-    /**
      * Query account tags by user identifier
      */
     public CompletableFuture<List<GextTag>> queryAccountTags(final String userIdentifier) {

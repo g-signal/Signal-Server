@@ -175,7 +175,9 @@ public class ProfileGrpcHelper {
         // Query external tags for this account
         final List<org.whispersystems.textsecuregcm.ext_tag.GextTag> gextTags =
                 ProfileHelper.queryExternalTags(extTagClient, targetAccount.getUuid());
-        responseBuilder.addAllGextTags(buildGextTags(gextTags));
+        if(gextTags!=null) {
+          responseBuilder.addAllGextTags(buildGextTags(gextTags));
+        }
       }
       case PNI -> responseBuilder.setUnrestrictedUnidentifiedAccess(false);
     }
