@@ -104,21 +104,21 @@ public class GextTagClient {
                                 return tags;
                             } catch (JsonProcessingException e) {
                                 logger.error("Failed to parse account tags response for identifier {}", userIdentifier, e);
-                                return Collections.<GextTag>emptyList();
+                                return null;
                             }
                         }
 
                         logger.warn("Failed to query account tags for identifier {} with status {} and response body: {}",
                                 userIdentifier, response.statusCode(), response.body());
-                        return Collections.<GextTag>emptyList();
+                        return null;
                     })
                     .exceptionally(throwable -> {
                         logger.error("Exception occurred while querying account tags for identifier {}", userIdentifier, throwable);
-                        return Collections.<GextTag>emptyList();
+                        return null;
                     });
         } catch (Exception e) {
             logger.error("Failed to create request for account tags query for identifier {}", userIdentifier, e);
-            return CompletableFuture.completedFuture(Collections.<GextTag>emptyList());
+            return CompletableFuture.completedFuture(null);
         }
     }
 
@@ -147,21 +147,21 @@ public class GextTagClient {
                                 return tags;
                             } catch (JsonProcessingException e) {
                                 logger.error("Failed to parse group tags response for group {}", groupIdentifier, e);
-                                return Collections.<GextTag>emptyList();
+                                return null;
                             }
                         }
 
                         logger.warn("Failed to query group tags for group {} with status {} and response body: {}",
                                 groupIdentifier, response.statusCode(), response.body());
-                        return Collections.<GextTag>emptyList();
+                        return null;
                     })
                     .exceptionally(throwable -> {
                         logger.error("Exception occurred while querying group tags for group {}", groupIdentifier, throwable);
-                        return Collections.<GextTag>emptyList();
+                        return null;
                     });
         } catch (Exception e) {
             logger.error("Failed to create request for group tags query for group {}", groupIdentifier, e);
-            return CompletableFuture.completedFuture(Collections.<GextTag>emptyList());
+            return CompletableFuture.completedFuture(null);
         }
     }
 
