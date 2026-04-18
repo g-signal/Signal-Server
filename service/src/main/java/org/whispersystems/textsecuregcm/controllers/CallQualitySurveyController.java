@@ -71,6 +71,10 @@ public class CallQualitySurveyController {
 
     final String remoteAddress = (String) requestContext.getProperty(RemoteAddressFilter.REMOTE_ADDRESS_ATTRIBUTE_NAME);
 
+    if(callQualitySurveyManager==null){
+      return;
+    }
+
     try {
       callQualitySurveyManager.submitCallQualitySurvey(submitCallQualitySurveyRequest, remoteAddress, userAgentString);
     } catch (final IllegalArgumentException e) {

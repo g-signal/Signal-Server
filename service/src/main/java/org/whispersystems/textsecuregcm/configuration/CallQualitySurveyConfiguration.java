@@ -8,5 +8,5 @@ package org.whispersystems.textsecuregcm.configuration;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 
-public record CallQualitySurveyConfiguration (@Valid @NotNull PubSubPublisherFactory pubSubPublisher) {
+public record CallQualitySurveyConfiguration (@NotNull Boolean enabled,@Valid @NotNull PubSubPublisherFactory pubSubPublisher) {
 }

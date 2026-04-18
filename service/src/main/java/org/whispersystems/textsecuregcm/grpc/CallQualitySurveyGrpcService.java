@@ -34,6 +34,10 @@ public class CallQualitySurveyGrpcService extends SimpleCallQualityGrpc.CallQual
 
     rateLimiters.getSubmitCallQualitySurveyLimiter().validate(remoteAddress);
 
+    if(callQualitySurveyManager==null){
+      return SubmitCallQualitySurveyResponse.getDefaultInstance();
+    }
+
     try {
       callQualitySurveyManager.submitCallQualitySurvey(request,
           remoteAddress,

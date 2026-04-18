@@ -721,10 +721,13 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         config.getDynamoDbTables().getSubscriptions().getTableName(), dynamoDbAsyncClient);
     MessageDeliveryLoopMonitor messageDeliveryLoopMonitor =
         config.logMessageDeliveryLoops() ? new RedisMessageDeliveryLoopMonitor(rateLimitersCluster) : new NoopMessageDeliveryLoopMonitor();
-    CallQualitySurveyManager callQualitySurveyManager = new CallQualitySurveyManager(asnInfoProviderSupplier,
-        config.getCallQualitySurveyConfiguration().pubSubPublisher().build(),
-        Clock.systemUTC(),
-        callQualitySurveyPubSubExecutor);
+    CallQualitySurveyManager callQualitySurveyManager = null;
+    if(config.getCallQualitySurveyConfiguration().enabled()){
+      callQualitySurveyManager = new CallQualitySurveyManager(asnInfoProviderSupplier,
+              config.getCallQualitySurveyConfiguration().pubSubPublisher().build(),
+              Clock.systemUTC(),
+              callQualitySurveyPubSubExecutor);
+    }
 
     final RegistrationLockVerificationManager registrationLockVerificationManager = new RegistrationLockVerificationManager(
         accountsManager, disconnectionRequestManager, svr2CredentialsGenerator, registrationRecoveryPasswordsManager,
