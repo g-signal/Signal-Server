@@ -38,8 +38,6 @@ class AccountTest {
   private final Device agingSecondaryDevice = mock(Device.class);
   private final Device recentSecondaryDevice = mock(Device.class);
   private final Device oldSecondaryDevice = mock(Device.class);
-  private final Device deleteSyncCapableDevice = mock(Device.class);
-  private final Device deleteSyncIncapableDevice = mock(Device.class);
 
   @BeforeEach
   void setup() {
@@ -58,12 +56,6 @@ class AccountTest {
 
     when(oldSecondaryDevice.getLastSeen()).thenReturn(System.currentTimeMillis() - TimeUnit.DAYS.toMillis(366));
     when(oldSecondaryDevice.getId()).thenReturn(deviceId2);
-
-    when(deleteSyncCapableDevice.getId()).thenReturn((byte) 1);
-    when(deleteSyncCapableDevice.hasCapability(DeviceCapability.DELETE_SYNC)).thenReturn(true);
-
-    when(deleteSyncIncapableDevice.getId()).thenReturn((byte) 2);
-    when(deleteSyncIncapableDevice.hasCapability(DeviceCapability.DELETE_SYNC)).thenReturn(false);
   }
 
   @Test
@@ -121,13 +113,13 @@ class AccountTest {
   }
 
   @Test
-  void isDeleteSyncSupported() {
-    assertTrue(AccountsHelper.generateTestAccount("+18005551234", UUID.randomUUID(), UUID.randomUUID(),
-        List.of(deleteSyncCapableDevice),
-        "1234".getBytes(StandardCharsets.UTF_8)).hasCapability(DeviceCapability.DELETE_SYNC));
+  void hardcodedCapabilities() {
+    final Device mockDevice = mock(Device.class);
+    when(mockDevice.getId()).thenReturn(Device.PRIMARY_ID);
+
     assertFalse(AccountsHelper.generateTestAccount("+18005551234", UUID.randomUUID(), UUID.randomUUID(),
-        List.of(deleteSyncIncapableDevice, deleteSyncCapableDevice),
-        "1234".getBytes(StandardCharsets.UTF_8)).hasCapability(DeviceCapability.DELETE_SYNC));
+        List.of(mockDevice),
+        "1234".getBytes(StandardCharsets.UTF_8)).hasCapability(DeviceCapability.TRANSFER));
   }
 
   void stale() {

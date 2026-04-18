@@ -7,6 +7,7 @@ package org.whispersystems.textsecuregcm.limits;
 import com.google.common.annotations.VisibleForTesting;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.concurrent.ScheduledExecutorService;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.redis.ClusterLuaScript;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
@@ -55,6 +56,7 @@ public class RateLimiters extends BaseRateLimiters<RateLimiters.For> {
     RECORD_DEVICE_TRANSFER_REQUEST("recordDeviceTransferRequest", new RateLimiterConfig(10, Duration.ofMillis(100), true)),
     WAIT_FOR_DEVICE_TRANSFER_REQUEST("waitForDeviceTransferRequest", new RateLimiterConfig(10, Duration.ofMillis(100), true)),
     DEVICE_CHECK_CHALLENGE("deviceCheckChallenge", new RateLimiterConfig(10, Duration.ofMinutes(1), false)),
+    SUBMIT_CALL_QUALITY_SURVEY("submitCallQualitySurvey", new RateLimiterConfig(100, Duration.ofMinutes(1), true))
     ;
 
     private final String id;
@@ -77,9 +79,10 @@ public class RateLimiters extends BaseRateLimiters<RateLimiters.For> {
 
   public static RateLimiters create(
       final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager,
-      final FaultTolerantRedisClusterClient cacheCluster) {
+      final FaultTolerantRedisClusterClient cacheCluster,
+      final ScheduledExecutorService retryExecutor) {
     return new RateLimiters(
-        dynamicConfigurationManager, defaultScript(cacheCluster), cacheCluster, Clock.systemUTC());
+        dynamicConfigurationManager, defaultScript(cacheCluster), cacheCluster, retryExecutor, Clock.systemUTC());
   }
 
   @VisibleForTesting
@@ -87,8 +90,9 @@ public class RateLimiters extends BaseRateLimiters<RateLimiters.For> {
       final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager,
       final ClusterLuaScript validateScript,
       final FaultTolerantRedisClusterClient cacheCluster,
+      final ScheduledExecutorService retryExecutor,
       final Clock clock) {
-    super(For.values(), dynamicConfigurationManager, validateScript, cacheCluster, clock);
+    super(For.values(), dynamicConfigurationManager, validateScript, cacheCluster, retryExecutor, clock);
   }
 
   public RateLimiter getAllocateDeviceLimiter() {
@@ -217,5 +221,9 @@ public class RateLimiters extends BaseRateLimiters<RateLimiters.For> {
 
   public RateLimiter getKeyTransparencyMonitorLimiter() {
     return forDescriptor(For.KEY_TRANSPARENCY_MONITOR_PER_IP);
+  }
+
+  public RateLimiter getSubmitCallQualitySurveyLimiter() {
+    return forDescriptor(For.SUBMIT_CALL_QUALITY_SURVEY);
   }
 }

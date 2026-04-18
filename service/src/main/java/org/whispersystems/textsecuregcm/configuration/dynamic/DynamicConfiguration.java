@@ -72,6 +72,10 @@ public class DynamicConfiguration {
   @Valid
   DynamicGExtAccountBlockConfiguration gextAccountBlock = new DynamicGExtAccountBlockConfiguration();
 
+  @JsonProperty
+  @Valid
+  private DynamicBackupConfiguration backup = new DynamicBackupConfiguration();
+
   public Optional<DynamicExperimentEnrollmentConfiguration> getExperimentEnrollmentConfiguration(
       final String experimentName) {
     return Optional.ofNullable(experiments.get(experimentName));
@@ -129,5 +133,8 @@ public class DynamicConfiguration {
 
   public DynamicGExtAccountBlockConfiguration getGextAccountBlockConfiguration() {
     return gextAccountBlock;
+  }
+  public DynamicBackupConfiguration getBackupConfiguration() {
+    return backup;
   }
 }

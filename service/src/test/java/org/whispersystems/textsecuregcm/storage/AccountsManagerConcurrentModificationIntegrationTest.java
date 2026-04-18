@@ -71,7 +71,6 @@ class AccountsManagerConcurrentModificationIntegrationTest {
       Tables.PNI_ASSIGNMENTS,
       Tables.DELETED_ACCOUNTS,
       Tables.EC_KEYS,
-      Tables.PQ_KEYS,
       Tables.PAGED_PQ_KEYS,
       Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS,
       Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS);
@@ -139,6 +138,7 @@ class AccountsManagerConcurrentModificationIntegrationTest {
           mock(RegistrationRecoveryPasswordsManager.class),
           mock(ClientPublicKeysManager.class),
           mock(Executor.class),
+          mock(ScheduledExecutorService.class),
           mock(ScheduledExecutorService.class),
           mock(Clock.class),
           "link-device-secret".getBytes(StandardCharsets.UTF_8),

@@ -115,9 +115,6 @@ public class DeviceController {
   private static final String WAIT_FOR_TRANSFER_ARCHIVE_TIMER_NAME =
       MetricsUtil.name(DeviceController.class, "waitForTransferArchiveDuration");
 
-  private static final String RECORD_TRANSFER_ARCHIVE_UPLOADED_COUNTER_NAME = MetricsUtil.name(DeviceController.class, "recordTransferArchiveUploaded");
-  private static final String HAS_REGISTRATION_ID_TAG_NAME = "hasRegistrationId";
-
   @VisibleForTesting
   static final int MIN_TOKEN_IDENTIFIER_LENGTH = 32;
 
@@ -251,7 +248,7 @@ public class DeviceController {
   @ApiResponse(responseCode = "429", description = "Too many attempts", headers = @Header(
       name = "Retry-After",
       description = "If present, an positive integer indicating the number of seconds before a subsequent attempt could succeed"))
-  public LinkDeviceResponse linkDevice(@HeaderParam(HttpHeaders.AUTHORIZATION) BasicAuthorizationHeader authorizationHeader,
+  public LinkDeviceResponse linkDevice(@HeaderParam(HttpHeaders.AUTHORIZATION) @NotNull BasicAuthorizationHeader authorizationHeader,
       @HeaderParam(HttpHeaders.USER_AGENT) @Nullable String userAgent,
       @NotNull @Valid LinkDeviceRequest linkDeviceRequest)
       throws RateLimitExceededException, DeviceLimitExceededException {
@@ -448,6 +445,8 @@ public class DeviceController {
 
   private static boolean isCapabilityDowngrade(final Account account, final Set<DeviceCapability> capabilities) {
     final Set<DeviceCapability> requiredCapabilities = Arrays.stream(DeviceCapability.values())
+        // `ALWAYS_CAPABLE` capabilities are always assumed to be present, so we don't require callers to specify them
+        .filter(capability -> capability.getAccountCapabilityMode() != DeviceCapability.AccountCapabilityMode.ALWAYS_CAPABLE)
         .filter(DeviceCapability::preventDowngrade)
         .filter(account::hasCapability)
         .collect(Collectors.toSet());
@@ -535,14 +534,7 @@ public class DeviceController {
   @ApiResponse(responseCode = "422", description = "The request object could not be parsed or was otherwise invalid")
   @ApiResponse(responseCode = "429", description = "Rate-limited; try again after the prescribed delay")
   public CompletionStage<Void> recordTransferArchiveUploaded(@Auth final AuthenticatedDevice authenticatedDevice,
-      @NotNull @Valid final TransferArchiveUploadedRequest transferArchiveUploadedRequest,
-      @HeaderParam(HttpHeaders.USER_AGENT) @Nullable String userAgent) {
-    Metrics.counter(RECORD_TRANSFER_ARCHIVE_UPLOADED_COUNTER_NAME, Tags.of(
-        UserAgentTagUtil.getPlatformTag(userAgent),
-        io.micrometer.core.instrument.Tag.of(
-            HAS_REGISTRATION_ID_TAG_NAME,
-            String.valueOf(transferArchiveUploadedRequest.destinationDeviceRegistrationId().isPresent()))
-    )).increment();
+      @NotNull @Valid final TransferArchiveUploadedRequest transferArchiveUploadedRequest) {
     return rateLimiters.getUploadTransferArchiveLimiter()
         .validateAsync(authenticatedDevice.accountIdentifier())
         .thenCompose(ignored -> accounts.getByAccountIdentifierAsync(authenticatedDevice.accountIdentifier()))
@@ -552,7 +544,6 @@ public class DeviceController {
 
           return accounts.recordTransferArchiveUpload(account,
               transferArchiveUploadedRequest.destinationDeviceId(),
-              transferArchiveUploadedRequest.destinationDeviceCreated().map(Instant::ofEpochMilli),
               transferArchiveUploadedRequest.destinationDeviceRegistrationId(),
               transferArchiveUploadedRequest.transferArchive());
         });

@@ -13,9 +13,8 @@ import com.google.api.services.androidpublisher.AndroidPublisher;
 import com.google.api.services.androidpublisher.AndroidPublisherRequest;
 import com.google.api.services.androidpublisher.AndroidPublisherScopes;
 import com.google.api.services.androidpublisher.model.AutoRenewingPlan;
-import com.google.api.services.androidpublisher.model.BasePlan;
+import com.google.api.services.androidpublisher.model.Money;
 import com.google.api.services.androidpublisher.model.OfferDetails;
-import com.google.api.services.androidpublisher.model.RegionalBasePlanConfig;
 import com.google.api.services.androidpublisher.model.SubscriptionPurchaseLineItem;
 import com.google.api.services.androidpublisher.model.SubscriptionPurchaseV2;
 import com.google.api.services.androidpublisher.model.SubscriptionPurchasesAcknowledgeRequest;
@@ -27,6 +26,7 @@ import io.micrometer.core.instrument.Tags;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.security.GeneralSecurityException;
 import java.time.Clock;
 import java.time.Instant;
@@ -35,10 +35,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -46,8 +43,6 @@ import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.controllers.RateLimitExceededException;
 import org.whispersystems.textsecuregcm.metrics.MetricsUtil;
 import org.whispersystems.textsecuregcm.storage.PaymentTime;
-import org.whispersystems.textsecuregcm.storage.SubscriptionException;
-import org.whispersystems.textsecuregcm.util.ExceptionUtils;
 
 /**
  * Manages subscriptions made with the Play Billing API
@@ -66,7 +61,6 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
   private static final Logger logger = LoggerFactory.getLogger(GooglePlayBillingManager.class);
 
   private final AndroidPublisher androidPublisher;
-  private final Executor executor;
   private final String packageName;
   private final Map<String, Long> productIdToLevel;
   private final Clock clock;
@@ -80,8 +74,7 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
       final InputStream credentialsStream,
       final String packageName,
       final String applicationName,
-      final Map<String, Long> productIdToLevel,
-      final Executor executor)
+      final Map<String, Long> productIdToLevel)
       throws GeneralSecurityException, IOException {
     this(new AndroidPublisher.Builder(
             GoogleNetHttpTransport.newTrustedTransport(),
@@ -91,7 +84,7 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
                 .createScoped(AndroidPublisherScopes.ANDROIDPUBLISHER)))
             .setApplicationName(applicationName)
             .build(),
-        Clock.systemUTC(), packageName, productIdToLevel, executor);
+        Clock.systemUTC(), packageName, productIdToLevel);
   }
 
   @VisibleForTesting
@@ -99,12 +92,10 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
       final AndroidPublisher androidPublisher,
       final Clock clock,
       final String packageName,
-      final Map<String, Long> productIdToLevel,
-      final Executor executor) {
+      final Map<String, Long> productIdToLevel) {
     this.clock = clock;
     this.androidPublisher = androidPublisher;
     this.productIdToLevel = productIdToLevel;
-    this.executor = Objects.requireNonNull(executor);
     this.packageName = packageName;
   }
 
@@ -136,14 +127,14 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
      * Acknowledge the purchase to the play billing server. If a purchase is never acknowledged, it will eventually be
      * refunded.
      *
-     * @return A stage that completes when the purchase has been successfully acknowledged
      */
-    public CompletableFuture<Void> acknowledgePurchase() {
+    public void acknowledgePurchase()
+        throws RateLimitExceededException, SubscriptionNotFoundException {
       if (!requiresAck) {
         // We've already acknowledged this purchase on a previous attempt, nothing to do
-        return CompletableFuture.completedFuture(null);
+        return;
       }
-      return executeTokenOperation(pub -> pub.purchases().subscriptions()
+      executeTokenOperation(pub -> pub.purchases().subscriptions()
           .acknowledge(packageName, productId, purchaseToken, new SubscriptionPurchasesAcknowledgeRequest()));
     }
 
@@ -157,45 +148,47 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
    * then acknowledged with {@link ValidatedToken#acknowledgePurchase()}
    *
    * @param purchaseToken The play store billing purchaseToken that represents a subscription purchase
-   * @return A stage that completes successfully when the token has been validated, or fails if the token does not
-   * represent an active purchase
+   * @return A {@link ValidatedToken} that can be acknowledged
+   * @throws RateLimitExceededException            If rate-limited by play-billing
+   * @throws SubscriptionNotFoundException        If the provided purchaseToken was not found in play-billing
+   * @throws SubscriptionPaymentRequiredException If the purchaseToken exists but is in a state that does not grant the
+   *                                               user an entitlement
    */
-  public CompletableFuture<ValidatedToken> validateToken(String purchaseToken) {
-    return lookupSubscription(purchaseToken).thenApplyAsync(subscription -> {
+  public ValidatedToken validateToken(String purchaseToken)
+      throws RateLimitExceededException, SubscriptionNotFoundException, SubscriptionPaymentRequiredException {
+    final SubscriptionPurchaseV2 subscription = lookupSubscription(purchaseToken);
+    final SubscriptionState state = SubscriptionState
+        .fromString(subscription.getSubscriptionState())
+        .orElse(SubscriptionState.UNSPECIFIED);
 
-      final SubscriptionState state = SubscriptionState
-          .fromString(subscription.getSubscriptionState())
-          .orElse(SubscriptionState.UNSPECIFIED);
+    Metrics.counter(VALIDATE_COUNTER_NAME, subscriptionTags(subscription)).increment();
 
-      Metrics.counter(VALIDATE_COUNTER_NAME, subscriptionTags(subscription)).increment();
+    // We only accept tokens in a state where the user may be entitled to their purchase. This is true even in the
+    // CANCELLED state. For example, a user may subscribe for 1 month, then immediately cancel (disabling auto-renew)
+    // and then submit their token. In this case they should still be able to retrieve their entitlement.
+    // See https://developer.android.com/google/play/billing/integrate#life
+    if (state != SubscriptionState.ACTIVE
+        && state != SubscriptionState.IN_GRACE_PERIOD
+        && state != SubscriptionState.CANCELED) {
+      throw new SubscriptionPaymentRequiredException(
+          "Cannot acknowledge purchase for subscription in state " + subscription.getSubscriptionState());
+    }
 
-      // We only accept tokens in a state where the user may be entitled to their purchase. This is true even in the
-      // CANCELLED state. For example, a user may subscribe for 1 month, then immediately cancel (disabling auto-renew)
-      // and then submit their token. In this case they should still be able to retrieve their entitlement.
-      // See https://developer.android.com/google/play/billing/integrate#life
-      if (state != SubscriptionState.ACTIVE
-          && state != SubscriptionState.IN_GRACE_PERIOD
-          && state != SubscriptionState.CANCELED) {
-        throw ExceptionUtils.wrap(new SubscriptionException.PaymentRequired(
-            "Cannot acknowledge purchase for subscription in state " + subscription.getSubscriptionState()));
-      }
+    final AcknowledgementState acknowledgementState = AcknowledgementState
+        .fromString(subscription.getAcknowledgementState())
+        .orElse(AcknowledgementState.UNSPECIFIED);
 
-      final AcknowledgementState acknowledgementState = AcknowledgementState
-          .fromString(subscription.getAcknowledgementState())
-          .orElse(AcknowledgementState.UNSPECIFIED);
+    final boolean requiresAck = switch (acknowledgementState) {
+      case ACKNOWLEDGED -> false;
+      case PENDING -> true;
+      case UNSPECIFIED -> throw new UncheckedIOException(
+          new IOException("Invalid acknowledgement state " + subscription.getAcknowledgementState()));
+    };
 
-      final boolean requiresAck = switch (acknowledgementState) {
-        case ACKNOWLEDGED -> false;
-        case PENDING -> true;
-        case UNSPECIFIED -> throw ExceptionUtils.wrap(
-            new IOException("Invalid acknowledgement state " + subscription.getAcknowledgementState()));
-      };
+    final SubscriptionPurchaseLineItem purchase = getLineItem(subscription);
+    final long level = productIdToLevel(purchase.getProductId());
 
-      final SubscriptionPurchaseLineItem purchase = getLineItem(subscription);
-      final long level = productIdToLevel(purchase.getProductId());
-
-      return new ValidatedToken(level, purchase.getProductId(), purchaseToken, requiresAck);
-    }, executor);
+    return new ValidatedToken(level, purchase.getProductId(), purchaseToken, requiresAck);
   }
 
 
@@ -204,10 +197,11 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
    * entitlement until their current period expires.
    *
    * @param purchaseToken The purchaseToken associated with the subscription
-   * @return A stage that completes when the subscription has successfully been cancelled
+   * @throws RateLimitExceededException If rate-limited by play-billing
    */
-  public CompletableFuture<Void> cancelAllActiveSubscriptions(String purchaseToken) {
-    return lookupSubscription(purchaseToken).thenCompose(subscription -> {
+  public void cancelAllActiveSubscriptions(String purchaseToken) throws RateLimitExceededException {
+    try {
+      final SubscriptionPurchaseV2 subscription = lookupSubscription(purchaseToken);
       Metrics.counter(CANCEL_COUNTER_NAME, subscriptionTags(subscription)).increment();
 
       final SubscriptionState state = SubscriptionState
@@ -216,141 +210,109 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
 
       if (state == SubscriptionState.CANCELED || state == SubscriptionState.EXPIRED) {
         // already cancelled, nothing to do
-        return CompletableFuture.completedFuture(null);
+        return;
       }
       final SubscriptionPurchaseLineItem purchase = getLineItem(subscription);
 
-      return executeTokenOperation(pub ->
+      executeTokenOperation(pub ->
           pub.purchases().subscriptions().cancel(packageName, purchase.getProductId(), purchaseToken));
-    })
-    // If the subscription is not found, no need to do anything
-    .exceptionally(ExceptionUtils.exceptionallyHandler(SubscriptionException.NotFound.class, e -> null));
+    } catch (SubscriptionNotFoundException e) {
+      // If the subscription is not found there is no need to do anything, so we can squash it
+    }
   }
 
   @Override
-  public CompletableFuture<SubscriptionInformation> getSubscriptionInformation(final String purchaseToken) {
+  public SubscriptionInformation getSubscriptionInformation(final String purchaseToken)
+      throws RateLimitExceededException, SubscriptionNotFoundException {
 
-    final CompletableFuture<SubscriptionPurchaseV2> subscriptionFuture = lookupSubscription(purchaseToken);
-    final CompletableFuture<SubscriptionPrice> priceFuture = subscriptionFuture.thenCompose(this::getSubscriptionPrice);
+    final SubscriptionPurchaseV2 subscription = lookupSubscription(purchaseToken);
+    final SubscriptionPrice price = getSubscriptionPrice(subscription);
 
-    return subscriptionFuture.thenCombineAsync(priceFuture, (subscription, price) -> {
+    final SubscriptionPurchaseLineItem lineItem = getLineItem(subscription);
+    final Optional<Instant> billingCycleAnchor = getStartTime(subscription);
+    final Optional<Instant> expiration = getExpiration(lineItem);
 
-      final SubscriptionPurchaseLineItem lineItem = getLineItem(subscription);
-      final Optional<Instant> billingCycleAnchor = getStartTime(subscription);
-      final Optional<Instant> expiration = getExpiration(lineItem);
+    final SubscriptionStatus status = switch (SubscriptionState
+        .fromString(subscription.getSubscriptionState())
+        .orElse(SubscriptionState.UNSPECIFIED)) {
+      // In play terminology CANCELLED is the same as an active subscription with cancelAtPeriodEnd set in Stripe. So
+      // it should map to the ACTIVE stripe status.
+      case ACTIVE, CANCELED -> SubscriptionStatus.ACTIVE;
+      case PENDING -> SubscriptionStatus.INCOMPLETE;
+      case ON_HOLD, PAUSED -> SubscriptionStatus.PAST_DUE;
+      case IN_GRACE_PERIOD -> SubscriptionStatus.UNPAID;
+      // EXPIRED is the equivalent of a Stripe CANCELLED subscription
+      case EXPIRED, PENDING_PURCHASE_CANCELED -> SubscriptionStatus.CANCELED;
+      case UNSPECIFIED -> SubscriptionStatus.UNKNOWN;
+    };
 
-      final SubscriptionStatus status = switch (SubscriptionState
-          .fromString(subscription.getSubscriptionState())
-          .orElse(SubscriptionState.UNSPECIFIED)) {
-        // In play terminology CANCELLED is the same as an active subscription with cancelAtPeriodEnd set in Stripe. So
-        // it should map to the ACTIVE stripe status.
-        case ACTIVE, CANCELED -> SubscriptionStatus.ACTIVE;
-        case PENDING -> SubscriptionStatus.INCOMPLETE;
-        case ON_HOLD, PAUSED -> SubscriptionStatus.PAST_DUE;
-        case IN_GRACE_PERIOD -> SubscriptionStatus.UNPAID;
-        // EXPIRED is the equivalent of a Stripe CANCELLED subscription
-        case EXPIRED, PENDING_PURCHASE_CANCELED -> SubscriptionStatus.CANCELED;
-        case UNSPECIFIED -> SubscriptionStatus.UNKNOWN;
-      };
-
-      final boolean autoRenewEnabled = Optional
-          .ofNullable(lineItem.getAutoRenewingPlan())
-          .map(AutoRenewingPlan::getAutoRenewEnabled) // returns null or false if auto-renew disabled
-          .orElse(false);
-      return new SubscriptionInformation(
-          price,
-          productIdToLevel(lineItem.getProductId()),
-          billingCycleAnchor.orElse(null),
-          expiration.orElse(null),
-          expiration.map(clock.instant()::isBefore).orElse(false),
-          !autoRenewEnabled,
-          status,
-          PaymentProvider.GOOGLE_PLAY_BILLING,
-          PaymentMethod.GOOGLE_PLAY_BILLING,
-          false,
-          null);
-    }, executor);
+    final boolean autoRenewEnabled = Optional
+        .ofNullable(lineItem.getAutoRenewingPlan())
+        .map(AutoRenewingPlan::getAutoRenewEnabled) // returns null or false if auto-renew disabled
+        .orElse(false);
+    return new SubscriptionInformation(
+        price,
+        productIdToLevel(lineItem.getProductId()),
+        billingCycleAnchor.orElse(null),
+        expiration.orElse(null),
+        expiration.map(clock.instant()::isBefore).orElse(false),
+        !autoRenewEnabled,
+        status,
+        PaymentProvider.GOOGLE_PLAY_BILLING,
+        PaymentMethod.GOOGLE_PLAY_BILLING,
+        false,
+        null);
   }
 
-  private CompletableFuture<SubscriptionPrice> getSubscriptionPrice(final SubscriptionPurchaseV2 subscriptionPurchase) {
-
+  private SubscriptionPrice getSubscriptionPrice(final SubscriptionPurchaseV2 subscriptionPurchase) {
     final SubscriptionPurchaseLineItem lineItem = getLineItem(subscriptionPurchase);
-    final OfferDetails offerDetails = lineItem.getOfferDetails();
-    final String basePlanId = offerDetails.getBasePlanId();
 
-    return this.executeAsync(pub -> pub.monetization().subscriptions().get(packageName, lineItem.getProductId()))
-        .thenApplyAsync(subscription -> {
-
-          final BasePlan basePlan = subscription.getBasePlans().stream()
-              .filter(bp -> bp.getBasePlanId().equals(basePlanId))
-              .findFirst()
-              .orElseThrow(() -> ExceptionUtils.wrap(new IOException("unknown basePlanId " + basePlanId)));
-          final String region = subscriptionPurchase.getRegionCode();
-          final RegionalBasePlanConfig basePlanConfig = basePlan.getRegionalConfigs()
-              .stream()
-              .filter(rbpc -> Objects.equals(region, rbpc.getRegionCode()))
-              .findFirst()
-              .orElseThrow(() -> ExceptionUtils.wrap(new IOException("unknown subscription region " + region)));
-
-          return new SubscriptionPrice(
-              basePlanConfig.getPrice().getCurrencyCode().toUpperCase(Locale.ROOT),
-              SubscriptionCurrencyUtil.convertGoogleMoneyToApiAmount(basePlanConfig.getPrice()));
-        }, executor);
+    // We don't offer pre-paid plans, so autoRenewingPlan must be nonnull
+    if (lineItem.getAutoRenewingPlan() == null) {
+      throw new UncheckedIOException(new IOException("Subscription purchases must be auto-renewing plans"));
+    }
+    final Money price = lineItem.getAutoRenewingPlan().getRecurringPrice();
+    return new SubscriptionPrice(
+        price.getCurrencyCode().toUpperCase(Locale.ROOT),
+        SubscriptionCurrencyUtil.convertGoogleMoneyToApiAmount(price));
   }
 
   @Override
-  public CompletableFuture<ReceiptItem> getReceiptItem(String purchaseToken) {
-    return lookupSubscription(purchaseToken).thenApplyAsync(subscription -> {
-      final AcknowledgementState acknowledgementState = AcknowledgementState
-          .fromString(subscription.getAcknowledgementState())
-          .orElse(AcknowledgementState.UNSPECIFIED);
-      if (acknowledgementState != AcknowledgementState.ACKNOWLEDGED) {
-        // We should only ever generate receipts for a stored and acknowledged token.
-        logger.error("Tried to fetch receipt for purchaseToken {} that was never acknowledged", purchaseToken);
-        throw new IllegalStateException("Tried to fetch receipt for purchaseToken that was never acknowledged");
-      }
+  public ReceiptItem getReceiptItem(String purchaseToken)
+      throws RateLimitExceededException, SubscriptionNotFoundException, SubscriptionPaymentRequiredException {
+    final SubscriptionPurchaseV2 subscription = lookupSubscription(purchaseToken);
+    final AcknowledgementState acknowledgementState = AcknowledgementState
+        .fromString(subscription.getAcknowledgementState())
+        .orElse(AcknowledgementState.UNSPECIFIED);
+    if (acknowledgementState != AcknowledgementState.ACKNOWLEDGED) {
+      // We should only ever generate receipts for a stored and acknowledged token.
+      logger.error("Tried to fetch receipt for purchaseToken {} that was never acknowledged", purchaseToken);
+      throw new IllegalStateException("Tried to fetch receipt for purchaseToken that was never acknowledged");
+    }
 
-      Metrics.counter(GET_RECEIPT_COUNTER_NAME, subscriptionTags(subscription)).increment();
+    Metrics.counter(GET_RECEIPT_COUNTER_NAME, subscriptionTags(subscription)).increment();
 
-      final SubscriptionPurchaseLineItem purchase = getLineItem(subscription);
-      final Instant expiration = getExpiration(purchase)
-          .orElseThrow(() -> ExceptionUtils.wrap(new IOException("Invalid subscription expiration")));
+    final SubscriptionPurchaseLineItem purchase = getLineItem(subscription);
+    final Instant expiration = getExpiration(purchase)
+        .orElseThrow(() -> new UncheckedIOException(new IOException("Invalid subscription expiration")));
 
-      if (expiration.isBefore(clock.instant())) {
-        // We don't need to check any state at this point, just whether the subscription is currently valid. If the
-        // subscription is in a grace period, the expiration time will be dynamically extended, see
-        // https://developer.android.com/google/play/billing/lifecycle/subscriptions#grace-period
-        throw ExceptionUtils.wrap(new SubscriptionException.PaymentRequired());
-      }
+    if (expiration.isBefore(clock.instant())) {
+      // We don't need to check any state at this point, just whether the subscription is currently valid. If the
+      // subscription is in a grace period, the expiration time will be dynamically extended, see
+      // https://developer.android.com/google/play/billing/lifecycle/subscriptions#grace-period
+      throw new SubscriptionPaymentRequiredException();
+    }
 
-      return new ReceiptItem(
-          subscription.getLatestOrderId(),
-          PaymentTime.periodEnds(expiration),
-          productIdToLevel(purchase.getProductId()));
-    }, executor);
+    return new ReceiptItem(
+        subscription.getLatestOrderId(),
+        PaymentTime.periodEnds(expiration),
+        productIdToLevel(purchase.getProductId()));
   }
 
 
   interface ApiCall<T> {
 
     AndroidPublisherRequest<T> req(AndroidPublisher publisher) throws IOException;
-  }
-
-  /**
-   * Asynchronously execute a synchronous API call from an AndroidPublisher
-   *
-   * @param apiCall A function that takes the publisher and returns the API call to execute
-   * @param <R>     The return type of the executed ApiCall
-   * @return A stage that completes with the result of the API call
-   */
-  private <R> CompletableFuture<R> executeAsync(final ApiCall<R> apiCall) {
-    return CompletableFuture.supplyAsync(() -> {
-      try {
-        return apiCall.req(androidPublisher).execute();
-      } catch (IOException e) {
-        throw ExceptionUtils.wrap(e);
-      }
-    }, executor);
   }
 
   /**
@@ -361,26 +323,33 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
    * @param <R>     The result of the API call
    * @return A stage that completes with the result of the API call
    */
-  private <R> CompletableFuture<R> executeTokenOperation(final ApiCall<R> apiCall) {
-    return executeAsync(apiCall)
-        .exceptionally(ExceptionUtils.exceptionallyHandler(HttpResponseException.class, e -> {
-          if (e.getStatusCode() == Response.Status.NOT_FOUND.getStatusCode()
-              || e.getStatusCode() == Response.Status.GONE.getStatusCode()) {
-            throw ExceptionUtils.wrap(new SubscriptionException.NotFound());
-          }
-          if (e.getStatusCode() == Response.Status.TOO_MANY_REQUESTS.getStatusCode()) {
-            throw ExceptionUtils.wrap(new RateLimitExceededException(null));
-          }
-          final String details = e instanceof GoogleJsonResponseException
-              ? ((GoogleJsonResponseException) e).getDetails().toString()
-              : "";
+  private <R> R executeTokenOperation(final ApiCall<R> apiCall)
+      throws RateLimitExceededException, SubscriptionNotFoundException {
+    try {
+      return apiCall.req(androidPublisher).execute();
+    } catch (HttpResponseException e) {
+      if (e.getStatusCode() == Response.Status.NOT_FOUND.getStatusCode()
+          || e.getStatusCode() == Response.Status.GONE.getStatusCode()) {
+        throw new SubscriptionNotFoundException();
+      }
+      if (e.getStatusCode() == Response.Status.TOO_MANY_REQUESTS.getStatusCode()) {
+        throw new RateLimitExceededException(null);
+      }
+      final String details = e instanceof GoogleJsonResponseException
+          ? ((GoogleJsonResponseException) e).getDetails().toString()
+          : "";
 
-          logger.warn("Unexpected HTTP status code {} from androidpublisher: {}", e.getStatusCode(), details);
-          throw ExceptionUtils.wrap(e);
-        }));
+      final String message =
+          String.format("Unexpected HTTP status code %s from androidpublisher: %s", e.getStatusCode(), details);
+      logger.warn(message);
+      throw new UncheckedIOException(new IOException(message));
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
-  private CompletableFuture<SubscriptionPurchaseV2> lookupSubscription(final String purchaseToken) {
+  private SubscriptionPurchaseV2 lookupSubscription(final String purchaseToken)
+      throws RateLimitExceededException, SubscriptionNotFoundException {
     return executeTokenOperation(publisher -> publisher.purchases().subscriptionsv2().get(packageName, purchaseToken));
   }
 

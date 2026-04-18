@@ -10,10 +10,7 @@ logging:
       threshold: ALL
       timeZone: UTC
       target: stdout
-
-metrics:
-  reporters: []
-  reportOnStop: false
+    - type: otlp
 
 tlsKeyStore:
   password: secret://tlsKeyStore.password
@@ -34,7 +31,7 @@ stripe:
 braintree:
   enabled: false
   merchantId: unset
-  publicKey: unset
+  publicKey: secret://braintree.publicKey
   privateKey: secret://braintree.privateKey
   environment: unset
   graphqlUrl: unset
@@ -54,7 +51,10 @@ braintree:
 
 googlePlayBilling:
   enabled: false
-  credentialsJson: secret://googlePlayBilling.credentialsJson
+  credentialsJson: |
+    {
+      "credential": "configuration"
+    }
   packageName: package.name
   applicationName: test
   productIdToLevel: {}
@@ -115,8 +115,6 @@ dynamoDbTables:
     tableName: Example_Keys
   ecSignedPreKeys:
     tableName: Example_EC_Signed_Pre_Keys
-  pqKeys:
-    tableName: Example_PQ_Keys
   pagedPqKeys:
     tableName: Example_PQ_Paged_Keys
   pqLastResortKeys:
@@ -241,8 +239,8 @@ messageCache: # Redis server configuration for message store cache
 
 #ok
 gcpAttachments: # GCP Storage configuration
-  domain: https://agjali2qfa.storage.googleapis.com
-  email: gcp-425@graphite-tesla-468905-p0.iam.gserviceaccount.com
+  domain: example.com
+  email: user@example.cocm
   maxSizeInBytes: 1024
   pathPrefix:
   rsaSigningKey: secret://gcpAttachments.rsaSigningKey
@@ -281,18 +279,11 @@ cdn3StorageManager:
     2: gcs
     3: r2   #tus
 
-# ok
-dogstatsd:
-  environment: dev
-  host: 127.0.0.1
-
-# ok
 openTelemetry:
   enabled: false
   environment: dev
   url: http://127.0.0.1:4318/
 
-#
 unidentifiedDelivery:
   certificate: CgIIAQ==
   privateKey: secret://unidentifiedDelivery.privateKey
@@ -427,6 +418,10 @@ oneTimeDonations:
 registrationService:
   host: registration.example.com
   port: 443
+  credentialConfigurationJson: |
+    {
+      "example": "example"
+    }
   identityTokenAudience: https://registration.example.com
   collationKeySalt: secret://registrationService.collationKeySalt
   registrationCaCertificateEnabled: true
@@ -546,15 +541,6 @@ turn:
 linkDevice:
   secret: secret://linkDevice.secret
 
-noiseTunnel:
-  webSocketPort: 8444
-  directPort: 8445
-  tlsKeyStoreFile: /path/to/file.p12
-  tlsKeyStoreEntryAlias: example.com
-  tlsKeyStorePassword: secret://noiseTunnel.tlsKeyStorePassword
-  noiseStaticPrivateKey: secret://noiseTunnel.noiseStaticPrivateKey
-  recognizedProxySecret: secret://noiseTunnel.recognizedProxySecret
-
 externalRequestFilter:
   grpcMethods:
     - com.example.grpc.ExampleService/exampleMethod
@@ -565,6 +551,25 @@ externalRequestFilter:
 
 idlePrimaryDeviceReminder:
   minIdleDuration: P30D
+
+grpc:
+  port: 50051
+
+asnTable:
+  s3Region: a-region
+  s3Bucket: a-bucket
+  objectKey: asn.tsv
+  maxSize: 100000
+  refreshInterval: PT10S
+
+callQualitySurvey:
+  pubSubPublisher:
+    project: example-project
+    topic: example-topic
+    credentialConfiguration: |
+      {
+        "credential": "configuration"
+      }
 
 
 gextTag:

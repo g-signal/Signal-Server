@@ -43,21 +43,19 @@ public class SecureStorageClient {
       throws CertificateException {
     this.storageServiceCredentialsGenerator = storageServiceCredentialsGenerator;
     this.deleteUri = URI.create(configuration.uri()).resolve(DELETE_PATH);
-    FaultTolerantHttpClient.Builder fBuilder = FaultTolerantHttpClient.newBuilder()
-              .withCircuitBreaker(configuration.circuitBreaker())
-              .withRetry(configuration.retry())
-              .withRetryExecutor(retryExecutor)
-              .withVersion(HttpClient.Version.HTTP_1_1)
-              .withConnectTimeout(Duration.ofSeconds(10))
-              .withRedirect(HttpClient.Redirect.NEVER)
-              .withExecutor(executor)
-              .withName("secure-storage")
-              .withSecurityProtocol(FaultTolerantHttpClient.SECURITY_PROTOCOL_TLS_1_3);
+    FaultTolerantHttpClient.Builder fBuilder = FaultTolerantHttpClient.newBuilder("secure-storage", executor)
+        .withCircuitBreaker(configuration.circuitBreakerConfigurationName())
+        .withRetry(configuration.retryConfigurationName(), retryExecutor)
+        .withVersion(HttpClient.Version.HTTP_1_1)
+        .withConnectTimeout(Duration.ofSeconds(10))
+        .withRedirect(HttpClient.Redirect.NEVER)
+        .withSecurityProtocol(FaultTolerantHttpClient.SECURITY_PROTOCOL_TLS_1_3);
 
-    if(configuration.storageCaCertificatesEnabled()){
-        fBuilder.withTrustedServerCertificates(configuration.storageCaCertificates().toArray(new String[0]));
-    }
-    this.httpClient = fBuilder.build();
+      if(configuration.storageCaCertificatesEnabled()){
+          fBuilder.withTrustedServerCertificates(configuration.storageCaCertificates().toArray(new String[0]));
+      }
+
+      this.httpClient = fBuilder.build();
   }
 
   public CompletableFuture<Void> deleteStoredData(final UUID accountUuid) {

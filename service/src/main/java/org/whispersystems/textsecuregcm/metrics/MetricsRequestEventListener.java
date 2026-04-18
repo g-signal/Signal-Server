@@ -5,13 +5,19 @@
 
 package org.whispersystems.textsecuregcm.metrics;
 
-import com.codahale.metrics.MetricRegistry;
+import static org.whispersystems.textsecuregcm.metrics.MetricsUtil.name;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.HttpHeaders;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import javax.annotation.Nullable;
+import org.eclipse.jetty.io.ArrayByteBufferPool;
 import org.glassfish.jersey.server.ContainerResponse;
 import org.glassfish.jersey.server.monitoring.RequestEvent;
 import org.glassfish.jersey.server.monitoring.RequestEventListener;
@@ -20,11 +26,6 @@ import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.storage.ClientReleaseManager;
 import org.whispersystems.textsecuregcm.util.logging.UriInfoUtil;
 import org.whispersystems.websocket.WebSocketResourceProvider;
-
-import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
 
 /**
  * Gathers and reports request-level metrics for WebSocket traffic only.
@@ -36,10 +37,10 @@ public class MetricsRequestEventListener implements RequestEventListener {
 
   private final ClientReleaseManager clientReleaseManager;
 
-  public static final String REQUEST_COUNTER_NAME = MetricRegistry.name(MetricsRequestEventListener.class, "request");
-  public static final String REQUESTS_BY_VERSION_COUNTER_NAME = MetricRegistry.name(MetricsRequestEventListener.class, "requestByVersion");
-  public static final String RESPONSE_BYTES_COUNTER_NAME = MetricRegistry.name(MetricsRequestEventListener.class, "responseBytes");
-  public static final String REQUEST_BYTES_COUNTER_NAME = MetricRegistry.name(MetricsRequestEventListener.class, "requestBytes");
+  public static final String REQUEST_COUNTER_NAME = name(MetricsRequestEventListener.class, "request");
+  public static final String REQUESTS_BY_VERSION_COUNTER_NAME = name(MetricsRequestEventListener.class, "requestByVersion");
+  public static final String RESPONSE_BYTES_COUNTER_NAME = name(MetricsRequestEventListener.class, "responseBytes");
+  public static final String REQUEST_BYTES_COUNTER_NAME = name(MetricsRequestEventListener.class, "requestBytes");
 
   @VisibleForTesting
   static final String PATH_TAG = "path";
@@ -52,6 +53,9 @@ public class MetricsRequestEventListener implements RequestEventListener {
 
   @VisibleForTesting
   static final String TRAFFIC_SOURCE_TAG = "trafficSource";
+
+  @VisibleForTesting
+  static final String AUTHENTICATED_TAG = "authenticated";
 
   private final TrafficSource trafficSource;
   private final MeterRegistry meterRegistry;
@@ -86,14 +90,25 @@ public class MetricsRequestEventListener implements RequestEventListener {
             .map(ContainerResponse::getStatus)
             .orElse(499))));
         tags.add(Tag.of(TRAFFIC_SOURCE_TAG, trafficSource.name().toLowerCase()));
+        tags.add(Tag.of(AUTHENTICATED_TAG, Optional.ofNullable(event.getContainerRequest().getProperty(WebSocketResourceProvider.REUSABLE_AUTH_PROPERTY))
+            .filter(Optional.class::isInstance)
+            .map(Optional.class::cast)
+            .map(Optional::isPresent)
+            .orElse(false)
+            .toString()));
 
         @Nullable final String userAgent;
         {
           final List<String> userAgentValues = event.getContainerRequest().getRequestHeader(HttpHeaders.USER_AGENT);
-          userAgent = userAgentValues != null && !userAgentValues.isEmpty() ? userAgentValues.get(0) : null;
+          userAgent = userAgentValues != null && !userAgentValues.isEmpty() ? userAgentValues.getFirst() : null;
         }
 
         tags.addAll(UserAgentTagUtil.getLibsignalAndPlatformTags(userAgent));
+
+        final Optional<Tag> maybeClientVersionTag =
+            UserAgentTagUtil.getClientVersionTag(userAgent, clientReleaseManager);
+
+        maybeClientVersionTag.ifPresent(tags::add);
 
         meterRegistry.counter(REQUEST_COUNTER_NAME, tags).increment();
 
@@ -109,10 +124,9 @@ public class MetricsRequestEventListener implements RequestEventListener {
             .filter(bytes -> bytes >= 0)
             .ifPresent(bytes -> meterRegistry.counter(RESPONSE_BYTES_COUNTER_NAME, tags).increment(bytes));
 
-        UserAgentTagUtil.getClientVersionTag(userAgent, clientReleaseManager)
-            .ifPresent(clientVersionTag -> meterRegistry.counter(REQUESTS_BY_VERSION_COUNTER_NAME,
-                    Tags.of(clientVersionTag, UserAgentTagUtil.getPlatformTag(userAgent)))
-                .increment());
+        maybeClientVersionTag.ifPresent(clientVersionTag -> meterRegistry.counter(REQUESTS_BY_VERSION_COUNTER_NAME,
+                Tags.of(clientVersionTag, UserAgentTagUtil.getPlatformTag(userAgent)))
+            .increment());
       }
     }
   }

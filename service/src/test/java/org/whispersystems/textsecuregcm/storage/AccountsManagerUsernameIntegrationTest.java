@@ -39,7 +39,6 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.mockito.Mockito;
 import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
-import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClient;
 import org.whispersystems.textsecuregcm.redis.RedisClusterExtension;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
@@ -74,7 +73,6 @@ class AccountsManagerUsernameIntegrationTest {
       Tables.PNI,
       Tables.PNI_ASSIGNMENTS,
       Tables.EC_KEYS,
-      Tables.PQ_KEYS,
       Tables.PAGED_PQ_KEYS,
       Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS,
       Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS);
@@ -104,7 +102,6 @@ class AccountsManagerUsernameIntegrationTest {
     final DynamoDbAsyncClient dynamoDbAsyncClient = DYNAMO_DB_EXTENSION.getDynamoDbAsyncClient();
     final KeysManager keysManager = new KeysManager(
         new SingleUseECPreKeyStore(dynamoDbAsyncClient, DynamoDbExtensionSchema.Tables.EC_KEYS.tableName()),
-        new SingleUseKEMPreKeyStore(dynamoDbAsyncClient, DynamoDbExtensionSchema.Tables.PQ_KEYS.tableName()),
         new PagedSingleUseKEMPreKeyStore(dynamoDbAsyncClient,
             S3_EXTENSION.getS3Client(),
             DynamoDbExtensionSchema.Tables.PAGED_PQ_KEYS.tableName(),
@@ -112,8 +109,7 @@ class AccountsManagerUsernameIntegrationTest {
         new RepeatedUseECSignedPreKeyStore(dynamoDbAsyncClient,
             DynamoDbExtensionSchema.Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS.tableName()),
         new RepeatedUseKEMSignedPreKeyStore(dynamoDbAsyncClient,
-            DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS.tableName()),
-        mock(ExperimentEnrollmentManager.class));
+            DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS.tableName()));
 
     accounts = Mockito.spy(new Accounts(
         Clock.systemUTC(),
@@ -166,6 +162,7 @@ class AccountsManagerUsernameIntegrationTest {
         mock(RegistrationRecoveryPasswordsManager.class),
         mock(ClientPublicKeysManager.class),
         Executors.newSingleThreadExecutor(),
+        Executors.newSingleThreadScheduledExecutor(),
         Executors.newSingleThreadScheduledExecutor(),
         mock(Clock.class),
         "link-device-secret".getBytes(StandardCharsets.UTF_8),

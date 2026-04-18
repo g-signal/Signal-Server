@@ -6,12 +6,12 @@
 package org.whispersystems.textsecuregcm.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.google.protobuf.ByteString;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -26,6 +26,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.reactivestreams.Publisher;
 import org.whispersystems.textsecuregcm.entities.MessageProtos;
+import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.storage.DynamoDbExtensionSchema.Tables;
 import org.whispersystems.textsecuregcm.tests.util.DevicesHelper;
 import org.whispersystems.textsecuregcm.tests.util.MessageHelper;
@@ -84,7 +85,7 @@ class MessagesDynamoDbTest {
     messageDeletionExecutorService = Executors.newSingleThreadExecutor();
     messagesDynamoDb = new MessagesDynamoDb(DYNAMO_DB_EXTENSION.getDynamoDbClient(),
         DYNAMO_DB_EXTENSION.getDynamoDbAsyncClient(), Tables.MESSAGES.tableName(), Duration.ofDays(14),
-        messageDeletionExecutorService);
+        messageDeletionExecutorService, mock(ExperimentEnrollmentManager.class));
   }
 
   @AfterEach
@@ -187,47 +188,6 @@ class MessagesDynamoDbTest {
   }
 
   @Test
-  void testDeleteMessageByDestinationAndGuid() throws Exception {
-    final UUID destinationUuid = UUID.randomUUID();
-    final UUID secondDestinationUuid = UUID.randomUUID();
-    final Device primary = DevicesHelper.createDevice((byte) 1);
-    final Device device2 = DevicesHelper.createDevice((byte) 2);
-
-    messagesDynamoDb.store(List.of(MESSAGE1), destinationUuid, primary);
-    messagesDynamoDb.store(List.of(MESSAGE2), secondDestinationUuid, primary);
-    messagesDynamoDb.store(List.of(MESSAGE3), destinationUuid, device2);
-
-    assertThat(load(destinationUuid, primary, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE)).isNotNull().hasSize(1)
-        .element(0).isEqualTo(MESSAGE1);
-    assertThat(load(destinationUuid, device2, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE)).isNotNull()
-        .hasSize(1)
-        .element(0).isEqualTo(MESSAGE3);
-    assertThat(load(secondDestinationUuid, primary, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE)).isNotNull()
-        .hasSize(1).element(0).isEqualTo(MESSAGE2);
-
-    final Optional<MessageProtos.Envelope> deletedMessage = messagesDynamoDb.deleteMessageByDestinationAndGuid(
-        secondDestinationUuid, primary,
-        UUID.fromString(MESSAGE2.getServerGuid())).get(5, TimeUnit.SECONDS);
-
-    assertThat(deletedMessage).isPresent();
-
-    assertThat(load(destinationUuid, primary, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE)).isNotNull().hasSize(1)
-        .element(0).isEqualTo(MESSAGE1);
-    assertThat(load(destinationUuid, device2, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE)).isNotNull()
-        .hasSize(1)
-        .element(0).isEqualTo(MESSAGE3);
-    assertThat(load(secondDestinationUuid, primary, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE)).isNotNull()
-        .isEmpty();
-
-    final Optional<MessageProtos.Envelope> alreadyDeletedMessage = messagesDynamoDb.deleteMessageByDestinationAndGuid(
-        secondDestinationUuid, primary,
-        UUID.fromString(MESSAGE2.getServerGuid())).get(5, TimeUnit.SECONDS);
-
-    assertThat(alreadyDeletedMessage).isNotPresent();
-
-  }
-
-  @Test
   void testDeleteSingleMessage() throws Exception {
     final UUID destinationUuid = UUID.randomUUID();
     final UUID secondDestinationUuid = UUID.randomUUID();
@@ -272,19 +232,14 @@ class MessagesDynamoDbTest {
     final Device primary = DevicesHelper.createDevice((byte) 1);
     primary.setCreated(System.currentTimeMillis());
 
-    messagesDynamoDb.store(List.of(MESSAGE1, MESSAGE2, MESSAGE3), destinationUuid, primary);
+    messagesDynamoDb.store(List.of(MESSAGE1, MESSAGE2), destinationUuid, primary);
     assertThat(load(destinationUuid, primary, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE))
-        .as("load should return all messages stored").containsOnly(MESSAGE1, MESSAGE2, MESSAGE3);
+        .as("load should return all messages stored").containsOnly(MESSAGE1, MESSAGE2);
 
-    messagesDynamoDb.deleteMessageByDestinationAndGuid(destinationUuid, primary, UUID.fromString(MESSAGE1.getServerGuid()))
+    messagesDynamoDb.deleteMessage(destinationUuid, primary, UUID.fromString(MESSAGE1.getServerGuid()), MESSAGE1.getServerTimestamp())
         .get(1, TimeUnit.SECONDS);
     assertThat(load(destinationUuid, primary, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE))
-        .as("deleting message by guid should work").containsExactly(MESSAGE3, MESSAGE2);
-
-    messagesDynamoDb.deleteMessage(destinationUuid, primary, UUID.fromString(MESSAGE2.getServerGuid()), MESSAGE2.getServerTimestamp())
-        .get(1, TimeUnit.SECONDS);
-    assertThat(load(destinationUuid, primary, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE))
-        .as("deleting message by guid and timestamp should work").containsExactly(MESSAGE3);
+        .as("deleting message by guid and timestamp should work").containsExactly(MESSAGE2);
 
     primary.setCreated(primary.getCreated() + 1000);
     assertThat(load(destinationUuid, primary, MessagesDynamoDb.RESULT_SET_CHUNK_SIZE))

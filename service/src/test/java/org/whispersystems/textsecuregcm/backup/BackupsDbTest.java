@@ -16,10 +16,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
-import java.util.stream.Stream;
-import org.assertj.core.util.Streams;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -57,22 +54,30 @@ public class BackupsDbTest {
   @Test
   public void trackMediaStats() {
     final AuthenticatedBackupUser backupUser = backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, BackupLevel.PAID);
-    // add at least one message backup so we can describe it
-    backupsDb.addMessageBackup(backupUser).join();
     int total = 0;
     for (int i = 0; i < 5; i++) {
       this.backupsDb.trackMedia(backupUser, 1, i).join();
       total += i;
       final BackupsDb.BackupDescription description = this.backupsDb.describeBackup(backupUser).join();
-      assertThat(description.mediaUsedSpace().get()).isEqualTo(total);
+      final StoredBackupAttributes storedAttrs = backupsDb.ttlRefresh(backupUser).join();
+      assertThat(description.mediaUsedSpace().orElseThrow())
+          .isEqualTo(total)
+          .isEqualTo(storedAttrs.bytesUsed());
+      assertThat(storedAttrs.numObjects()).isEqualTo(i + 1);
     }
+
 
     for (int i = 0; i < 5; i++) {
       this.backupsDb.trackMedia(backupUser, -1, -i).join();
       total -= i;
       final BackupsDb.BackupDescription description = this.backupsDb.describeBackup(backupUser).join();
-      assertThat(description.mediaUsedSpace().get()).isEqualTo(total);
+      final StoredBackupAttributes storedAttrs = backupsDb.ttlRefresh(backupUser).join();
+      assertThat(description.mediaUsedSpace().orElseThrow())
+          .isEqualTo(total)
+          .isEqualTo(storedAttrs.bytesUsed());
+      assertThat(storedAttrs.numObjects()).isEqualTo(5 - i - 1);
     }
+
   }
 
   @ParameterizedTest
@@ -236,7 +241,7 @@ public class BackupsDbTest {
     backupsDb.trackMedia(users.get(1), 10, 100).join();
     backupsDb.trackMedia(users.get(2), 1, 1000).join();
 
-    final List<StoredBackupAttributes> sbms = backupsDb.listBackupAttributes(1, Schedulers.immediate())
+    final List<StoredBackupAttributes> sbms = backupsDb.listBackupAttributes(1)
         .sort(Comparator.comparing(StoredBackupAttributes::lastRefresh))
         .collectList()
         .block();
