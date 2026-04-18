@@ -923,7 +923,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         ExternalServiceCredentialsGrpcService.createForAllExternalServices(config, rateLimiters),
         new KeysGrpcService(accountsManager, keysManager, rateLimiters),
         new ProfileGrpcService(clock, accountsManager, profilesManager, dynamicConfigurationManager,
-            config.getBadges(), profileCdnPolicyGenerator, profileCdnPolicySigner, profileBadgeConverter, rateLimiters, zkProfileOperations))
+            config.getBadges(), profileCdnPolicyGenerator, profileCdnPolicySigner, profileBadgeConverter, rateLimiters, zkProfileOperations, extTagClient))
         .map(bindableService -> ServerInterceptors.intercept(bindableService,
             // Note: interceptors run in the reverse order they are added; the remote deprecation filter
             // depends on the user-agent context so it has to come first here!
