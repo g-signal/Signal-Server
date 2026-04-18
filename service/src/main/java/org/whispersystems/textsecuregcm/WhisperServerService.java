@@ -659,6 +659,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         () -> dynamicConfigurationManager.getConfiguration().getSvr2StatusCodesToIgnoreForAccountDeletion());
 
     GextTagClient extTagClient = new GextTagClient(extTagClientExecutor,
+            retryExecutor,
             config.getGextTag(),
             () -> dynamicConfigurationManager.getConfiguration().getExtTagStatusCodesToIgnoreForQuery());
 

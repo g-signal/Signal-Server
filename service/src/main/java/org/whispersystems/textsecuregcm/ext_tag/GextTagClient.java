@@ -11,7 +11,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.net.HttpHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.whispersystems.textsecuregcm.auth.ExternalServiceCredentialsGenerator;
 import org.whispersystems.textsecuregcm.configuration.GextTagConfiguration;
+import org.whispersystems.textsecuregcm.configuration.SecureValueRecoveryConfiguration;
 import org.whispersystems.textsecuregcm.http.FaultTolerantHttpClient;
 import org.whispersystems.textsecuregcm.util.HttpUtils;
 
@@ -52,20 +54,16 @@ public class GextTagClient {
             final GextTagConfiguration configuration,
             Supplier<List<Integer>> allowedQueryErrorStatusCodes)
             throws CertificateException {
-
         final URI baseUri = URI.create(configuration.uri());
         this.accountTagQueryUri = baseUri.resolve(ACCOUNT_TAG_QUERY_PATH);
         this.groupTagQueryUri = baseUri.resolve(GROUP_TAG_QUERY_PATH);
 
-        FaultTolerantHttpClient.Builder fBuilder = FaultTolerantHttpClient.newBuilder()
-                .withCircuitBreaker(configuration.circuitBreaker())
-                .withRetry(configuration.retry())
-                .withRetryExecutor(retryExecutor)
+        FaultTolerantHttpClient.Builder fBuilder = FaultTolerantHttpClient.newBuilder("ext-tag", executor)
+                .withCircuitBreaker(configuration.circuitBreakerConfigurationName())
+                .withRetry(configuration.retryConfigurationName(), retryExecutor)
                 .withVersion(HttpClient.Version.HTTP_1_1)
                 .withConnectTimeout(Duration.ofSeconds(10))
                 .withRedirect(HttpClient.Redirect.NEVER)
-                .withExecutor(executor)
-                .withName("ext-tag")
                 .withSecurityProtocol(FaultTolerantHttpClient.SECURITY_PROTOCOL_TLS_1_2);
 
         if (configuration.extTagCaCertificatesEnabled()) {
