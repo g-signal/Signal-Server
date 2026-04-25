@@ -549,6 +549,7 @@ idlePrimaryDeviceReminder:
   minIdleDuration: P30D
 
 grpc:
+  bindAddress: localhost
   port: 50051
 
 asnTable:
