@@ -250,6 +250,10 @@ message GetUnversionedProfileResponse {
    * A list of gext tags associated with the account.
    */
   repeated GextTag gext_tags = 6;
+  /**
+   * Robot metadata for the account, if the account is configured as a gext robot.
+   */
+  GextRobot gext_robot = 7;
 }
 
 message GetExpiringProfileKeyCredentialRequest {
@@ -413,4 +417,29 @@ message BadgeSvg {
 enum CredentialType {
   CREDENTIAL_TYPE_UNSPECIFIED = 0;
   CREDENTIAL_TYPE_EXPIRING_PROFILE_KEY = 1;
+}
+
+message GextRobot {
+  /**
+   * Whether the account is a gext robot account.
+   */
+  bool robot = 1;
+  /**
+   * Which input-bar buttons are visible when chatting with this robot account.
+   */
+  GextRobotMsgButtonVisible msg_button_visible = 2;
+}
+
+message GextRobotMsgButtonVisible {
+  bool text = 1;
+  bool sticker = 2;
+  bool camera = 3;
+  bool microphone = 4;
+  bool photos = 5;
+  bool gif = 6;
+  bool file = 7;
+  bool contact = 8;
+  bool location = 9;
+  bool payment = 10;
+  bool poll = 11;
 }

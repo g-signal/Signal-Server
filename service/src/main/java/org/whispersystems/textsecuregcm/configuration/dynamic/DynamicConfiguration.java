@@ -72,6 +72,10 @@ public class DynamicConfiguration {
   @Valid
   DynamicGExtAccountBlockConfiguration gextAccountBlock = new DynamicGExtAccountBlockConfiguration();
 
+  @JsonProperty
+  @Valid
+  DynamicGExtRobotConfiguration gextRobot = new DynamicGExtRobotConfiguration();
+
   public Optional<DynamicExperimentEnrollmentConfiguration> getExperimentEnrollmentConfiguration(
       final String experimentName) {
     return Optional.ofNullable(experiments.get(experimentName));
@@ -129,5 +133,9 @@ public class DynamicConfiguration {
 
   public DynamicGExtAccountBlockConfiguration getGextAccountBlockConfiguration() {
     return gextAccountBlock;
+  }
+
+  public DynamicGExtRobotConfiguration getGextRobot() {
+    return gextRobot;
   }
 }

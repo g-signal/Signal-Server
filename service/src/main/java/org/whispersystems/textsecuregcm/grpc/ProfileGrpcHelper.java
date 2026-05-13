@@ -15,6 +15,8 @@ import java.util.UUID;
 import io.grpc.StatusException;
 import org.signal.chat.profile.Badge;
 import org.signal.chat.profile.BadgeSvg;
+import org.signal.chat.profile.GextRobot;
+import org.signal.chat.profile.GextRobotMsgTypeVisible;
 import org.signal.chat.profile.GextTag;
 import org.signal.chat.profile.GetExpiringProfileKeyCredentialResponse;
 import org.signal.chat.profile.GetUnversionedProfileResponse;
@@ -26,6 +28,7 @@ import org.signal.libsignal.zkgroup.profiles.ExpiringProfileKeyCredentialRespons
 import org.signal.libsignal.zkgroup.profiles.ServerZkProfileOperations;
 import org.whispersystems.textsecuregcm.auth.UnidentifiedAccessChecksum;
 import org.whispersystems.textsecuregcm.badges.ProfileBadgeConverter;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtRobotConfiguration;
 import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.storage.Account;
@@ -98,6 +101,17 @@ public class ProfileGrpcHelper {
   }
 
   @VisibleForTesting
+  static GextRobot buildGextRobot(final org.whispersystems.textsecuregcm.ext_robot.GextRobot domainRobot) {
+    final GextRobot.Builder builder = GextRobot.newBuilder().setRobot(domainRobot.isRobot());
+    if (domainRobot.getMsgButtonVisible() != null) {
+      builder.setMsgTypeVisible(GextRobotMsgTypeVisible.newBuilder()
+          .setText(domainRobot.getMsgButtonVisible().isText())
+          .build());
+    }
+    return builder.build();
+  }
+
+  @VisibleForTesting
   static List<GextTag> buildGextTags(final List<org.whispersystems.textsecuregcm.ext_tag.GextTag> gextTags) {
     final ArrayList<GextTag> grpcGextTags = new ArrayList<>();
     for (final org.whispersystems.textsecuregcm.ext_tag.GextTag gextTag : gextTags) {
@@ -154,7 +168,8 @@ public class ProfileGrpcHelper {
       final UUID requesterUuid,
       final Account targetAccount,
       final ProfileBadgeConverter profileBadgeConverter,
-      final GextTagClient extTagClient) {
+      final GextTagClient extTagClient,
+      final DynamicGExtRobotConfiguration robotConfiguration) {
     final GetUnversionedProfileResponse.Builder responseBuilder = GetUnversionedProfileResponse.newBuilder()
         .setIdentityKey(ByteString.copyFrom(targetAccount.getIdentityKey(targetIdentifier.identityType()).serialize()))
         .addAllCapabilities(buildAccountCapabilities(targetAccount));
@@ -178,6 +193,10 @@ public class ProfileGrpcHelper {
         if(gextTags!=null) {
           responseBuilder.addAllGextTags(buildGextTags(gextTags));
         }
+
+        final org.whispersystems.textsecuregcm.ext_robot.GextRobot gextRobot =
+            ProfileHelper.testGextRobot(robotConfiguration, targetAccount.getUuid());
+        responseBuilder.setGextRobot(buildGextRobot(gextRobot));
       }
       case PNI -> responseBuilder.setUnrestrictedUnidentifiedAccess(false);
     }
@@ -191,7 +210,7 @@ public class ProfileGrpcHelper {
       final UUID requesterUuid,
       final Account targetAccount,
       final ProfileBadgeConverter profileBadgeConverter) {
-    return buildUnversionedProfileResponse(targetIdentifier, requesterUuid, targetAccount, profileBadgeConverter, null);
+    return buildUnversionedProfileResponse(targetIdentifier, requesterUuid, targetAccount, profileBadgeConverter, null, null);
   }
 
   static GetExpiringProfileKeyCredentialResponse getExpiringProfileKeyCredentialResponse(

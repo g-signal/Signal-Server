@@ -10,6 +10,8 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.UUID;
 import javax.annotation.Nullable;
+
+import org.whispersystems.textsecuregcm.ext_robot.GextRobot;
 import org.whispersystems.textsecuregcm.util.ByteArrayBase64UrlAdapter;
 import org.whispersystems.textsecuregcm.ext_tag.GextTag;
 import java.util.List;
@@ -39,5 +41,7 @@ public record AccountIdentityResponse(
     Entitlements entitlements,
 
     @Schema(description = "external tags associated with this account")
-    @Nullable List<GextTag> gextTags) {
+    @Nullable List<GextTag> gextTags,
+    @Schema(description = "external robot config associated with this account")
+    @Nullable GextRobot gextRobot) {
 }

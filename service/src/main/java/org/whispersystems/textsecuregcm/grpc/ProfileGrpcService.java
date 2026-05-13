@@ -33,6 +33,7 @@ import org.whispersystems.textsecuregcm.auth.grpc.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.auth.grpc.AuthenticationUtil;
 import org.whispersystems.textsecuregcm.badges.ProfileBadgeConverter;
 import org.whispersystems.textsecuregcm.configuration.BadgeConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtRobotConfiguration;
 import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.configuration.BadgesConfiguration;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
@@ -165,12 +166,14 @@ public class ProfileGrpcService extends SimpleProfileGrpc.ProfileImplBase {
     final ServiceIdentifier targetIdentifier =
         ServiceIdentifierUtil.fromGrpcServiceIdentifier(request.getServiceIdentifier());
     final Account targetAccount = validateRateLimitAndGetAccount(authenticatedDevice.accountIdentifier(), targetIdentifier);
+    final DynamicGExtRobotConfiguration dynamicGExtRobotConfiguration = dynamicConfigurationManager.getConfiguration().getGextRobot();
 
     return ProfileGrpcHelper.buildUnversionedProfileResponse(targetIdentifier,
             authenticatedDevice.accountIdentifier(),
             targetAccount,
             profileBadgeConverter,
-            extTagClient);
+            extTagClient,
+            dynamicGExtRobotConfiguration);
   }
 
   @Override
