@@ -16,7 +16,7 @@ import io.grpc.StatusException;
 import org.signal.chat.profile.Badge;
 import org.signal.chat.profile.BadgeSvg;
 import org.signal.chat.profile.GextRobot;
-import org.signal.chat.profile.GextRobotMsgTypeVisible;
+import org.signal.chat.profile.GextRobotMsgButtonVisible;
 import org.signal.chat.profile.GextTag;
 import org.signal.chat.profile.GetExpiringProfileKeyCredentialResponse;
 import org.signal.chat.profile.GetUnversionedProfileResponse;
@@ -103,9 +103,20 @@ public class ProfileGrpcHelper {
   @VisibleForTesting
   static GextRobot buildGextRobot(final org.whispersystems.textsecuregcm.ext_robot.GextRobot domainRobot) {
     final GextRobot.Builder builder = GextRobot.newBuilder().setRobot(domainRobot.isRobot());
-    if (domainRobot.getMsgButtonVisible() != null) {
-      builder.setMsgTypeVisible(GextRobotMsgTypeVisible.newBuilder()
-          .setText(domainRobot.getMsgButtonVisible().isText())
+    final org.whispersystems.textsecuregcm.ext_robot.GextRobotMsgButtonVisible buttonVisible = domainRobot.getMsgButtonVisible();
+    if (buttonVisible != null) {
+      builder.setMsgButtonVisible(GextRobotMsgButtonVisible.newBuilder()
+          .setText(buttonVisible.isText())
+          .setSticker(buttonVisible.isSticker())
+          .setCamera(buttonVisible.isCamera())
+          .setMicrophone(buttonVisible.isMicrophone())
+          .setPhotos(buttonVisible.isPhotos())
+          .setGif(buttonVisible.isGif())
+          .setFile(buttonVisible.isFile())
+          .setContact(buttonVisible.isContact())
+          .setLocation(buttonVisible.isLocation())
+          .setPayment(buttonVisible.isPayment())
+          .setPoll(buttonVisible.isPoll())
           .build());
     }
     return builder.build();
