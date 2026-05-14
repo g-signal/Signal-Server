@@ -117,6 +117,7 @@ import org.whispersystems.textsecuregcm.controllers.MessageController;
 import org.whispersystems.textsecuregcm.controllers.OneTimeDonationController;
 import org.whispersystems.textsecuregcm.controllers.PaymentsController;
 import org.whispersystems.textsecuregcm.controllers.GExtGroupProfileController;
+import org.whispersystems.textsecuregcm.controllers.GExtLinkbapayController;
 import org.whispersystems.textsecuregcm.controllers.ProfileController;
 import org.whispersystems.textsecuregcm.controllers.ProvisioningController;
 import org.whispersystems.textsecuregcm.controllers.RegistrationController;
@@ -1150,6 +1151,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             profileBadgeConverter, config.getBadges(), extTagClient, profileCdnPolicyGenerator, profileCdnPolicySigner,
             zkSecretParams, zkProfileOperations, batchIdentityCheckExecutor),
         new GExtGroupProfileController(extTagClient),
+        new GExtLinkbapayController(accountsManager, extTagClient),
         new ProvisioningController(rateLimiters, provisioningManager),
         new RegistrationController(accountsManager, phoneVerificationTokenManager, registrationLockVerificationManager,
             rateLimiters),
