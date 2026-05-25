@@ -13,5 +13,7 @@ public record RequestLinkRequest(
         String baxsAppUserId,
         String baxsAppUserName,
         String baxsAppUserMobile,
-        String baxsAppUserEmail) {
+        String baxsAppUserEmail,
+        Boolean confirmResult,
+        String failReason) {
 }

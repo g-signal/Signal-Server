@@ -14,5 +14,7 @@ import jakarta.validation.constraints.NotBlank;
  * Only the email is left optional on the wire because Signal-Server does not store user email.
  */
 public record RequestLinkRestRequest(
-        @NotBlank String linkId) {
+        @NotBlank String linkId,
+        @NotBlank Boolean confirmResult,
+        String failReason) {
 }

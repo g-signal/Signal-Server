@@ -102,7 +102,9 @@ public class GExtLinkbapayController {
                 // Signal stores display names encrypted on the client; no plaintext name available server-side.
                 null,
                 account.getNumber(),
-                null);
+                null,
+                body.confirmResult(),
+                body.failReason());
 
         return extTagClient.requestLink(upstream).thenApply(this::orUpstream502);
     }
