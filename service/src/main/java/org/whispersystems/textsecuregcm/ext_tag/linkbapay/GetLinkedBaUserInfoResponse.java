@@ -5,7 +5,10 @@
 
 package org.whispersystems.textsecuregcm.ext_tag.linkbapay;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import java.time.Instant;
+import java.util.Date;
 
 /**
  * 出参：/v1/linkbapay/link/getLinkedBaUserInfo 返回。
@@ -18,5 +21,6 @@ public record GetLinkedBaUserInfoResponse(
         String linkbaxsOptName,
         String linkbaxsOptEmail,
         String linkbaxsOptMobile,
-        Instant linkbaxsDate) {
+        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ssXXX")
+        Date linkbaxsDate) {
 }

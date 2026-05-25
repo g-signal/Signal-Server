@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
+import java.util.Date;
 
 /**
  * REST-layer body for POST /v1/linkbapay/message/send.
@@ -22,5 +23,6 @@ public record SendMessageRestRequest(
         String content,
         String fileUrl,
         String fileName,
-        @JsonFormat(shape = JsonFormat.Shape.STRING) Instant sendTime) {
+        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ssXXX")
+        Date sendTime) {
 }

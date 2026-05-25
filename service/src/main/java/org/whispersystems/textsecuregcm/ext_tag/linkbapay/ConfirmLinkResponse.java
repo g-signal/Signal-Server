@@ -5,7 +5,10 @@
 
 package org.whispersystems.textsecuregcm.ext_tag.linkbapay;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import java.time.Instant;
+import java.util.Date;
 
 /**
  * API 4 出参：/v1/linkbapay/link/confirm 返回。linkStatus 可能为 3(LINKED)、4(FAILED)、5(TIMEOUT)。
@@ -17,5 +20,6 @@ public record ConfirmLinkResponse(
         String baxsAppUserId,
         Integer linkStatus,
         String linkStatusName,
-        Instant confirmTime) {
+        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ssXXX")
+        Date confirmTime) {
 }

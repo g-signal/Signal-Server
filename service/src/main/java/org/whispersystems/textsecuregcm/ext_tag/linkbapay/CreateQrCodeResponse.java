@@ -5,7 +5,10 @@
 
 package org.whispersystems.textsecuregcm.ext_tag.linkbapay;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import java.time.Instant;
+import java.util.Date;
 
 /**
  * API 1 出参：/v1/linkbapay/link/qrcode/create 返回。
@@ -17,5 +20,6 @@ public record CreateQrCodeResponse(
         String qrCodeContent,
         Integer linkStatus,
         String linkStatusName,
-        Instant expireTime) {
+        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ssXXX")
+        Date expireTime) {
 }

@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.net.HttpHeaders;
+import org.whispersystems.textsecuregcm.util.SystemMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.configuration.GextTagConfiguration;
@@ -50,7 +51,10 @@ import java.util.function.Supplier;
 public class GextTagClient {
 
     private static final Logger logger = LoggerFactory.getLogger(GextTagClient.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    // 用项目统一的 SystemMapper:已注册 JavaTimeModule (java.time.Instant 等) + Jdk8Module +
+    // FAIL_ON_UNKNOWN_PROPERTIES=false。自建 new ObjectMapper() 不带这些模块,会在反序列化
+    // GetBaUserInfoResponse.expireTime (Instant) 等字段时抛 InvalidDefinitionException。
+    private static final ObjectMapper objectMapper = SystemMapper.jsonMapper();
 
     private final URI accountTagQueryUri;
     private final URI groupTagQueryUri;
