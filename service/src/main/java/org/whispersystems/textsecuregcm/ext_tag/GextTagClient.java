@@ -13,10 +13,6 @@ import org.whispersystems.textsecuregcm.util.SystemMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.configuration.GextTagConfiguration;
-import org.whispersystems.textsecuregcm.ext_tag.linkbapay.ConfirmLinkRequest;
-import org.whispersystems.textsecuregcm.ext_tag.linkbapay.ConfirmLinkResponse;
-import org.whispersystems.textsecuregcm.ext_tag.linkbapay.CreateQrCodeRequest;
-import org.whispersystems.textsecuregcm.ext_tag.linkbapay.CreateQrCodeResponse;
 import org.whispersystems.textsecuregcm.ext_tag.linkbapay.GetBaUserInfoRequest;
 import org.whispersystems.textsecuregcm.ext_tag.linkbapay.GetBaUserInfoResponse;
 import org.whispersystems.textsecuregcm.ext_tag.linkbapay.GetLinkResultRequest;
@@ -201,44 +197,6 @@ public class GextTagClient {
     }
 
 
-    /**
-     * Proxy → V1LinkBapayController.createQrCode (API 1)
-     * 调用第三方客服系统创建 BAXS 绑定二维码。失败返回 null。
-     */
-    public CompletableFuture<CreateQrCodeResponse> createQrCode(final CreateQrCodeRequest body) {
-        try {
-            final String json = objectMapper.writeValueAsString(body);
-            logger.debug("createQrCode:{} body={}", linkbapayCreateQrCodeUri, json);
-            final HttpRequest request = HttpRequest.newBuilder()
-                    .uri(linkbapayCreateQrCodeUri)
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .timeout(Duration.ofSeconds(30))
-                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .build();
-
-            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenApply(response -> {
-                        if (HttpUtils.isSuccessfulResponse(response.statusCode())) {
-                            try {
-                                return objectMapper.readValue(response.body(), CreateQrCodeResponse.class);
-                            } catch (JsonProcessingException e) {
-                                logger.error("Failed to parse createQrCode response", e);
-                                return null;
-                            }
-                        }
-                        logger.warn("Failed createQrCode status={} body={}", response.statusCode(), response.body());
-                        return null;
-                    })
-                    .exceptionally(throwable -> {
-                        logger.error("Exception on createQrCode", throwable);
-                        return null;
-                    });
-        } catch (Exception e) {
-            logger.error("Failed to create request for createQrCode", e);
-            return CompletableFuture.completedFuture(null);
-        }
-    }
-
 
     /**
      * Proxy → V1LinkBapayController.getBaUserInfo (API 2)
@@ -315,43 +273,6 @@ public class GextTagClient {
         }
     }
 
-
-    /**
-     * Proxy → V1LinkBapayController.confirmLink (API 4)
-     */
-    public CompletableFuture<ConfirmLinkResponse> confirmLink(final ConfirmLinkRequest body) {
-        try {
-            final String json = objectMapper.writeValueAsString(body);
-            logger.debug("confirmLink:{} body={}", linkbapayConfirmLinkUri, json);
-            final HttpRequest request = HttpRequest.newBuilder()
-                    .uri(linkbapayConfirmLinkUri)
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .timeout(Duration.ofSeconds(30))
-                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .build();
-
-            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenApply(response -> {
-                        if (HttpUtils.isSuccessfulResponse(response.statusCode())) {
-                            try {
-                                return objectMapper.readValue(response.body(), ConfirmLinkResponse.class);
-                            } catch (JsonProcessingException e) {
-                                logger.error("Failed to parse confirmLink response", e);
-                                return null;
-                            }
-                        }
-                        logger.warn("Failed confirmLink status={} body={}", response.statusCode(), response.body());
-                        return null;
-                    })
-                    .exceptionally(throwable -> {
-                        logger.error("Exception on confirmLink", throwable);
-                        return null;
-                    });
-        } catch (Exception e) {
-            logger.error("Failed to create request for confirmLink", e);
-            return CompletableFuture.completedFuture(null);
-        }
-    }
 
 
     /**
