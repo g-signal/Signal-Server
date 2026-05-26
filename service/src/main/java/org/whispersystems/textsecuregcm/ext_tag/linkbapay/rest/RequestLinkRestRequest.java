@@ -6,6 +6,7 @@
 package org.whispersystems.textsecuregcm.ext_tag.linkbapay.rest;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 /**
  * REST-layer body for POST /v1/linkbapay/link/requestLink.
@@ -15,6 +16,6 @@ import jakarta.validation.constraints.NotBlank;
  */
 public record RequestLinkRestRequest(
         @NotBlank String linkId,
-        @NotBlank Integer confirmResult,
+        @NotNull Boolean confirmResult,
         String failReason) {
 }
