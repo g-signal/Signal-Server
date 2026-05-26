@@ -96,13 +96,24 @@ public class GExtLinkbapayController {
 
         final Account account = requireAccount(auth);
 
+        String baxsAppUserId = null;
+        String baxsAppUserName = null;
+        String baxsAppUserMobile = null;
+        String baxsAppUserEmail = null;
+
+        if(body.confirmResult()!=null && body.confirmResult()){
+            baxsAppUserId = account.getUuid().toString();
+            baxsAppUserName = body.userName();
+            baxsAppUserMobile = account.getNumber();
+        }
+
         final RequestLinkRequest upstream = new RequestLinkRequest(
                 body.linkId(),
-                account.getUuid().toString(),
+                baxsAppUserId,
                 // Signal stores display names encrypted on the client; no plaintext name available server-side.
-                null,
-                account.getNumber(),
-                null,
+                baxsAppUserName,
+                baxsAppUserMobile,
+                baxsAppUserEmail,
                 body.confirmResult()!=null && body.confirmResult(),
                 body.failReason());
 

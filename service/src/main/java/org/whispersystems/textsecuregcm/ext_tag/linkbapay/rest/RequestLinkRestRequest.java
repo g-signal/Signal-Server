@@ -16,6 +16,7 @@ import jakarta.validation.constraints.NotNull;
  */
 public record RequestLinkRestRequest(
         @NotBlank String linkId,
+        String userName,
         @NotNull Boolean confirmResult,
         String failReason) {
 }
