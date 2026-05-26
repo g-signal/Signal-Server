@@ -15,6 +15,6 @@ import jakarta.validation.constraints.NotBlank;
  */
 public record RequestLinkRestRequest(
         @NotBlank String linkId,
-        @NotBlank Boolean confirmResult,
+        @NotBlank Integer confirmResult,
         String failReason) {
 }

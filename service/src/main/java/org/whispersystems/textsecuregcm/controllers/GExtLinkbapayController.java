@@ -103,7 +103,7 @@ public class GExtLinkbapayController {
                 null,
                 account.getNumber(),
                 null,
-                body.confirmResult(),
+                body.confirmResult()!=null && body.confirmResult()==1,
                 body.failReason());
 
         return extTagClient.requestLink(upstream).thenApply(this::orUpstream502);
