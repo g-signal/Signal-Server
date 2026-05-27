@@ -241,8 +241,8 @@ messageCache: # Redis server configuration for message store cache
 
 #ok
 gcpAttachments: # GCP Storage configuration
-  domain: https://agjali2qfa.storage.googleapis.com
-  email: gcp-425@graphite-tesla-468905-p0.iam.gserviceaccount.com
+  domain: https://s.com
+  email: gcp-425@gount.com
   maxSizeInBytes: 1024
   pathPrefix:
   rsaSigningKey: secret://gcpAttachments.rsaSigningKey
