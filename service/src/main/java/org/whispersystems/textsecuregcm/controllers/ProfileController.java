@@ -68,6 +68,9 @@ import org.whispersystems.textsecuregcm.badges.ProfileBadgeConverter;
 import org.whispersystems.textsecuregcm.configuration.BadgeConfiguration;
 import org.whispersystems.textsecuregcm.configuration.BadgesConfiguration;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtAccountBlockConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtRobotConfiguration;
+import org.whispersystems.textsecuregcm.ext_robot.GextRobot;
 import org.whispersystems.textsecuregcm.ext_tag.GextTag;
 import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.entities.BaseProfileResponse;
@@ -449,6 +452,12 @@ public class ProfileController {
 
     final List<GextTag> extTags = ProfileHelper.queryExternalTags(extTagClient, account.getUuid());
 
+    final DynamicGExtRobotConfiguration gExtRobotConfiguration =
+            dynamicConfigurationManager.getConfiguration().getGextRobot();
+
+    final GextRobot gextRobot = ProfileHelper.testGextRobot(gExtRobotConfiguration, account.getUuid());
+
+
     return new BaseProfileResponse(account.getIdentityKey(IdentityType.ACI),
         account.getUnidentifiedAccessKey().map(UnidentifiedAccessChecksum::generateFor).orElse(null),
         account.isUnrestrictedUnidentifiedAccess(),
@@ -458,11 +467,18 @@ public class ProfileController {
             account.getBadges(),
             isSelf),
         extTags,
+        gextRobot,
         new AciServiceIdentifier(account.getUuid()));
   }
 
   private BaseProfileResponse buildBaseProfileResponseForPhoneNumberIdentity(final Account account) {
     final List<GextTag> extTags = ProfileHelper.queryExternalTags(extTagClient, account.getUuid());
+
+    final DynamicGExtRobotConfiguration gExtRobotConfiguration =
+            dynamicConfigurationManager.getConfiguration().getGextRobot();
+
+    final GextRobot gextRobot = ProfileHelper.testGextRobot(gExtRobotConfiguration, account.getUuid());
+
 
     return new BaseProfileResponse(account.getIdentityKey(IdentityType.PNI),
         null,
@@ -470,6 +486,7 @@ public class ProfileController {
         getAccountCapabilities(account),
         Collections.emptyList(),
         extTags,
+        gextRobot,
         new PniServiceIdentifier(account.getPhoneNumberIdentifier()));
   }
 

@@ -9,6 +9,10 @@ import org.signal.libsignal.zkgroup.profiles.ProfileKeyCommitment;
 import org.signal.libsignal.zkgroup.profiles.ProfileKeyCredentialRequest;
 import org.signal.libsignal.zkgroup.profiles.ServerZkProfileOperations;
 import org.whispersystems.textsecuregcm.configuration.BadgeConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtRobotConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtRobotMsgButtonVisibleConfiguration;
+import org.whispersystems.textsecuregcm.ext_robot.GextRobot;
+import org.whispersystems.textsecuregcm.ext_robot.GextRobotMsgButtonVisible;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.storage.AccountBadge;
 import org.whispersystems.textsecuregcm.storage.VersionedProfile;
@@ -115,6 +119,39 @@ public class ProfileHelper {
       // Log error but don't fail the profile request - tags are supplementary data
       return null;
     }
+  }
+
+
+  public static GextRobot testGextRobot(final DynamicGExtRobotConfiguration robotConfiguration, final UUID accountIdentifier) {
+    final GextRobot gextRobot = new GextRobot();
+    gextRobot.setRobot(false);
+
+    if (robotConfiguration == null
+        || robotConfiguration.getAccountUuids() == null
+        || !robotConfiguration.getAccountUuids().contains(accountIdentifier)) {
+      return gextRobot;
+    }
+
+    gextRobot.setRobot(true);
+
+    final DynamicGExtRobotMsgButtonVisibleConfiguration buttonConfig = robotConfiguration.getMsgButtonVisible();
+    if (buttonConfig != null) {
+      final GextRobotMsgButtonVisible msgButtonVisible = new GextRobotMsgButtonVisible();
+      msgButtonVisible.setText(buttonConfig.isText());
+      msgButtonVisible.setSticker(buttonConfig.isSticker());
+      msgButtonVisible.setCamera(buttonConfig.isCamera());
+      msgButtonVisible.setMicrophone(buttonConfig.isMicrophone());
+      msgButtonVisible.setPhotos(buttonConfig.isPhotos());
+      msgButtonVisible.setGif(buttonConfig.isGif());
+      msgButtonVisible.setFile(buttonConfig.isFile());
+      msgButtonVisible.setContact(buttonConfig.isContact());
+      msgButtonVisible.setLocation(buttonConfig.isLocation());
+      msgButtonVisible.setPayment(buttonConfig.isPayment());
+      msgButtonVisible.setPoll(buttonConfig.isPoll());
+      gextRobot.setMsgButtonVisible(msgButtonVisible);
+    }
+
+    return gextRobot;
   }
 
   /**

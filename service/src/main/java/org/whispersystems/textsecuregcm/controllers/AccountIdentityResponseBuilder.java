@@ -8,8 +8,12 @@ import java.time.Clock;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtAccountBlockConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicGExtRobotConfiguration;
 import org.whispersystems.textsecuregcm.entities.AccountIdentityResponse;
 import org.whispersystems.textsecuregcm.entities.Entitlements;
+import org.whispersystems.textsecuregcm.ext_robot.GextRobot;
 import org.whispersystems.textsecuregcm.ext_tag.GextTag;
 import org.whispersystems.textsecuregcm.ext_tag.GextTagClient;
 import org.whispersystems.textsecuregcm.storage.Account;
@@ -22,6 +26,7 @@ public class AccountIdentityResponseBuilder {
   private boolean storageCapable;
   private Clock clock;
   private GextTagClient extTagClient;
+  private DynamicGExtRobotConfiguration gExtRobotConfiguration;
 
   public AccountIdentityResponseBuilder(Account account) {
     this.account = account;
@@ -36,6 +41,11 @@ public class AccountIdentityResponseBuilder {
 
   public AccountIdentityResponseBuilder clock(Clock clock) {
     this.clock = clock;
+    return this;
+  }
+
+  public AccountIdentityResponseBuilder gExtRobotConfiguration(DynamicGExtRobotConfiguration gExtRobotConfiguration) {
+    this.gExtRobotConfiguration = gExtRobotConfiguration;
     return this;
   }
 
@@ -61,6 +71,8 @@ public class AccountIdentityResponseBuilder {
         ? ProfileHelper.queryExternalTags(extTagClient, account.getUuid())
         : Collections.emptyList();
 
+    final GextRobot gextRobot = ProfileHelper.testGextRobot(this.gExtRobotConfiguration, account.getUuid());
+
     return new AccountIdentityResponse(account.getUuid(),
         account.getNumber(),
         account.getPhoneNumberIdentifier(),
@@ -68,14 +80,15 @@ public class AccountIdentityResponseBuilder {
         account.getUsernameLinkHandle(),
         storageCapable,
         new Entitlements(badges, backupEntitlement),
-        extTags);
+        extTags,
+        gextRobot);
   }
 
   public static AccountIdentityResponse fromAccount(final Account account) {
     return new AccountIdentityResponseBuilder(account).build();
   }
 
-  public static AccountIdentityResponse fromAccount(final Account account, final GextTagClient extTagClient) {
-    return new AccountIdentityResponseBuilder(account).extTagClient(extTagClient).build();
+  public static AccountIdentityResponse fromAccount(final Account account, final GextTagClient extTagClient, final DynamicGExtRobotConfiguration gExtRobotConfiguration) {
+    return new AccountIdentityResponseBuilder(account).extTagClient(extTagClient).gExtRobotConfiguration(gExtRobotConfiguration).build();
   }
 }

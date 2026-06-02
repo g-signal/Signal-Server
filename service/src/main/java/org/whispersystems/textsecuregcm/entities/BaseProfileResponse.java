@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import org.signal.libsignal.protocol.IdentityKey;
+import org.whispersystems.textsecuregcm.ext_robot.GextRobot;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.util.ByteArrayBase64WithPaddingAdapter;
 import org.whispersystems.textsecuregcm.util.ServiceIdentifierAdapter;
@@ -43,6 +44,9 @@ public class BaseProfileResponse {
   private List<GextTag> gextTags;
 
   @JsonProperty
+  private GextRobot gextRobot;
+
+  @JsonProperty
   @JsonSerialize(using = ServiceIdentifierAdapter.ServiceIdentifierSerializer.class)
   @JsonDeserialize(using = ServiceIdentifierAdapter.ServiceIdentifierDeserializer.class)
   private ServiceIdentifier uuid;
@@ -56,6 +60,7 @@ public class BaseProfileResponse {
       final Map<String, Boolean> capabilities,
       final List<Badge> badges,
       final List<GextTag> gextTags,
+      final GextRobot gextRobot,
       final ServiceIdentifier uuid) {
 
     this.identityKey = identityKey;
@@ -64,6 +69,7 @@ public class BaseProfileResponse {
     this.capabilities = capabilities;
     this.badges = badges;
     this.gextTags = gextTags;
+    this.gextRobot = gextRobot;
     this.uuid = uuid;
   }
 
@@ -89,6 +95,10 @@ public class BaseProfileResponse {
 
   public List<GextTag> getGextTags() {
     return gextTags;
+  }
+
+  public GextRobot getGextRobot() {
+    return gextRobot;
   }
 
   public ServiceIdentifier getUuid() {

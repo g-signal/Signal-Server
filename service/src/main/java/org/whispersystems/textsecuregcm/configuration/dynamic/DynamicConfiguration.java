@@ -76,6 +76,10 @@ public class DynamicConfiguration {
   @Valid
   private DynamicBackupConfiguration backup = new DynamicBackupConfiguration();
 
+  @JsonProperty
+  @Valid
+  DynamicGExtRobotConfiguration gextRobot = new DynamicGExtRobotConfiguration();
+
   public Optional<DynamicExperimentEnrollmentConfiguration> getExperimentEnrollmentConfiguration(
       final String experimentName) {
     return Optional.ofNullable(experiments.get(experimentName));
@@ -136,5 +140,9 @@ public class DynamicConfiguration {
   }
   public DynamicBackupConfiguration getBackupConfiguration() {
     return backup;
+  }
+
+  public DynamicGExtRobotConfiguration getGextRobot() {
+    return gextRobot;
   }
 }
