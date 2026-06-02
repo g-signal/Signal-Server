@@ -49,7 +49,7 @@ import java.util.function.Supplier;
 public class GextTagClient {
 
     private static final Logger logger = LoggerFactory.getLogger(GextTagClient.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = SystemMapper.jsonMapper();
 
     private final URI accountTagQueryUri;
     private final URI groupTagQueryUri;
@@ -93,14 +93,13 @@ public class GextTagClient {
         this.linkbapayGetLinkedBaUserInfoUri = baseUri.resolve(LINKBAPAY_GET_LINKED_BA_USER_INFO_PATH);
         this.linkbapaySendMessageUri = baseUri.resolve(LINKBAPAY_SEND_MESSAGE_PATH);
 
-        FaultTolerantHttpClient.Builder fBuilder = FaultTolerantHttpClient.newBuilder()
-                .withCircuitBreaker(configuration.circuitBreaker())
-                .withRetry(configuration.retry())
-                .withRetryExecutor(retryExecutor)
-                .withVersion(HttpClient.Version.HTTP_1_1)
-                .withConnectTimeout(Duration.ofSeconds(10))
-                .withRedirect(HttpClient.Redirect.NEVER)
-                .withSecurityProtocol(FaultTolerantHttpClient.SECURITY_PROTOCOL_TLS_1_2);
+      FaultTolerantHttpClient.Builder fBuilder = FaultTolerantHttpClient.newBuilder("ext-tag", executor)
+          .withCircuitBreaker(configuration.circuitBreakerConfigurationName())
+          .withRetry(configuration.retryConfigurationName(), retryExecutor)
+          .withVersion(HttpClient.Version.HTTP_1_1)
+          .withConnectTimeout(Duration.ofSeconds(10))
+          .withRedirect(HttpClient.Redirect.NEVER)
+          .withSecurityProtocol(FaultTolerantHttpClient.SECURITY_PROTOCOL_TLS_1_2);
 
         if (configuration.extTagCaCertificatesEnabled()) {
             fBuilder.withTrustedServerCertificates(configuration.extTagCaCertificates().toArray(new String[0]));
