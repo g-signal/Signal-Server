@@ -76,6 +76,12 @@ public class GextTagClient {
     static final String LINKBAPAY_GET_LINKED_BA_USER_INFO_PATH = "/v1/linkbapay/link/getLinkedBaUserInfo";
     static final String LINKBAPAY_SEND_MESSAGE_PATH = "/v1/linkbapay/message/send";
 
+    static final String ACCOUNT_REG_CALLBACK = "/v1/account/reg/callback";
+    static final String ACCOUNT_LOGIN_CALLBACK = "/v1/account/login/callback";
+
+    private final URI accountRegCallbackUri;
+    private final URI accountLoginCallbackUri;
+
     public GextTagClient(
             final Executor executor,
             final ScheduledExecutorService retryExecutor,
@@ -94,6 +100,9 @@ public class GextTagClient {
         this.linkbapayGetLinkResultUri = baseUri.resolve(LINKBAPAY_GET_LINK_RESULT_PATH);
         this.linkbapayGetLinkedBaUserInfoUri = baseUri.resolve(LINKBAPAY_GET_LINKED_BA_USER_INFO_PATH);
         this.linkbapaySendMessageUri = baseUri.resolve(LINKBAPAY_SEND_MESSAGE_PATH);
+
+        this.accountRegCallbackUri = baseUri.resolve(ACCOUNT_REG_CALLBACK);
+        this.accountLoginCallbackUri = baseUri.resolve(ACCOUNT_LOGIN_CALLBACK);
 
         FaultTolerantHttpClient.Builder fBuilder = FaultTolerantHttpClient.newBuilder()
                 .withCircuitBreaker(configuration.circuitBreaker())
@@ -385,6 +394,96 @@ public class GextTagClient {
                     });
         } catch (Exception e) {
             logger.error("Failed to create request for sendMessage", e);
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    /**
+     * 用户注册回调
+     * @param phoneNumber 用户手机号
+     * @param uuid 用户 UUID
+     * @return CompletableFuture<Void>
+     */
+    public CompletableFuture<Void> accountRegCallback(final String phoneNumber, final String uuid) {
+        try {
+            final Map<String, Object> requestBody = Map.of(
+                    "phoneNumber", phoneNumber,
+                    "uuid", uuid,
+                    "timestamp", System.currentTimeMillis()
+            );
+
+            final String requestBodyJson = objectMapper.writeValueAsString(requestBody);
+
+            final HttpRequest request = HttpRequest.newBuilder()
+                    .uri(accountRegCallbackUri)
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBodyJson))
+                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+
+            logger.info("Sending account registration callback: phoneNumber={}, uuid={}", phoneNumber, uuid);
+
+            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenApply(response -> {
+                        if (response.statusCode() == 200) {
+                            logger.info("Account registration callback successful: phoneNumber={}", phoneNumber);
+                        } else {
+                            logger.warn("Account registration callback failed: status={}, body={}",
+                                    response.statusCode(), response.body());
+                        }
+                        return null;
+                    })
+                    .exceptionally(throwable -> {
+                        logger.error("Exception on account registration callback: phoneNumber={}", phoneNumber, throwable);
+                        return null;
+                    });
+        } catch (Exception e) {
+            logger.error("Failed to create request for account registration callback", e);
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    /**
+     * 用户登录回调
+     * @param phoneNumber 用户手机号
+     * @param uuid 用户 UUID
+     * @return CompletableFuture<Void>
+     */
+    public CompletableFuture<Void> accountLoginCallback(final String phoneNumber, final String uuid) {
+        try {
+            final Map<String, Object> requestBody = Map.of(
+                    "phoneNumber", phoneNumber,
+                    "uuid", uuid,
+                    "timestamp", System.currentTimeMillis()
+            );
+
+            final String requestBodyJson = objectMapper.writeValueAsString(requestBody);
+
+            final HttpRequest request = HttpRequest.newBuilder()
+                    .uri(accountLoginCallbackUri)
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBodyJson))
+                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+
+            logger.info("Sending account login callback: phoneNumber={}, uuid={}", phoneNumber, uuid);
+
+            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenApply(response -> {
+                        if (response.statusCode() == 200) {
+                            logger.info("Account login callback successful: phoneNumber={}", phoneNumber);
+                        } else {
+                            logger.warn("Account login callback failed: status={}, body={}",
+                                    response.statusCode(), response.body());
+                        }
+                        return null;
+                    })
+                    .exceptionally(throwable -> {
+                        logger.error("Exception on account login callback: phoneNumber={}", phoneNumber, throwable);
+                        return null;
+                    });
+        } catch (Exception e) {
+            logger.error("Failed to create request for account login callback", e);
             return CompletableFuture.completedFuture(null);
         }
     }

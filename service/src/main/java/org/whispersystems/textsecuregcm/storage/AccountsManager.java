@@ -135,6 +135,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   private final ScheduledExecutorService messagesPollExecutor;
   private final Clock clock;
   private final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager;
+  private final org.whispersystems.textsecuregcm.ext_tag.GextTagClient gextTagClient;
 
   private final Key verificationTokenKey;
 
@@ -225,7 +226,8 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       final ScheduledExecutorService messagesPollExecutor,
       final Clock clock,
       final byte[] linkDeviceSecret,
-      final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager) {
+      final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager,
+      final org.whispersystems.textsecuregcm.ext_tag.GextTagClient gextTagClient) {
     this.accounts = accounts;
     this.phoneNumberIdentifiers = phoneNumberIdentifiers;
     this.cacheCluster = cacheCluster;
@@ -243,6 +245,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     this.messagesPollExecutor = messagesPollExecutor;
     this.clock = requireNonNull(clock);
     this.dynamicConfigurationManager = dynamicConfigurationManager;
+    this.gextTagClient = gextTagClient;
 
     this.verificationTokenKey = new SecretKeySpec(linkDeviceSecret, LINK_DEVICE_VERIFICATION_TOKEN_ALGORITHM);
 
@@ -419,6 +422,28 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     accountAttributes.recoveryPassword().ifPresent(registrationRecoveryPassword ->
         registrationRecoveryPasswordsManager.store(account.getIdentifier(IdentityType.PNI),
             registrationRecoveryPassword));
+
+    // 调用外部回调：区分初次注册和再次登录
+    if (gextTagClient != null) {
+      final String uuid = account.getUuid().toString();
+      final boolean isNewAccount = "new".equals(accountCreationType);
+
+      if (isNewAccount) {
+        // 初次注册回调
+        gextTagClient.accountRegCallback(number, uuid)
+            .exceptionally(throwable -> {
+              logger.error("Failed to send account registration callback for number: {}", number, throwable);
+              return null;
+            });
+      } else {
+        // 再次登录回调
+        gextTagClient.accountLoginCallback(number, uuid)
+            .exceptionally(throwable -> {
+              logger.error("Failed to send account login callback for number: {}", number, throwable);
+              return null;
+            });
+      }
+    }
 
     return account;
   }
