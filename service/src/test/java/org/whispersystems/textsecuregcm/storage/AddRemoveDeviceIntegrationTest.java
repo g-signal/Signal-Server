@@ -174,7 +174,7 @@ public class AddRemoveDeviceIntegrationTest {
         scheduledExecutorService,
         clock,
         "link-device-secret".getBytes(StandardCharsets.UTF_8),
-        dynamicConfigurationManager);
+        dynamicConfigurationManager, null);
 
     accountsManager.start();
   }

@@ -173,7 +173,7 @@ public class AccountCreationDeletionIntegrationTest {
         executor,
         CLOCK,
         "link-device-secret".getBytes(StandardCharsets.UTF_8),
-        dynamicConfigurationManager);
+        dynamicConfigurationManager, null);
   }
 
   @AfterEach
