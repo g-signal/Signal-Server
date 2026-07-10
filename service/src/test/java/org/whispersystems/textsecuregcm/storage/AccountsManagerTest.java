@@ -262,7 +262,7 @@ class AccountsManagerTest {
         mock(ScheduledExecutorService.class),
         CLOCK,
         LINK_DEVICE_SECRET,
-        dynamicConfigurationManager);
+        dynamicConfigurationManager, null);
   }
 
   @Test

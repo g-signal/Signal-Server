@@ -169,7 +169,7 @@ class AccountsManagerUsernameIntegrationTest {
         Executors.newSingleThreadScheduledExecutor(),
         mock(Clock.class),
         "link-device-secret".getBytes(StandardCharsets.UTF_8),
-        dynamicConfigurationManager);
+        dynamicConfigurationManager, null);
   }
 
   @Test

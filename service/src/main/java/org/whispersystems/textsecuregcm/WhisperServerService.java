@@ -652,7 +652,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         pubsubClient, accountLockManager, keysManager, messagesManager, profilesManager,
         secureStorageClient, secureValueRecovery2Client, disconnectionRequestManager,
         registrationRecoveryPasswordsManager, clientPublicKeysManager, accountLockExecutor, messagePollExecutor,
-        clock, config.getLinkDeviceSecretConfiguration().secret().value(), dynamicConfigurationManager);
+        clock, config.getLinkDeviceSecretConfiguration().secret().value(), dynamicConfigurationManager, extTagClient);
     RemoteConfigsManager remoteConfigsManager = new RemoteConfigsManager(remoteConfigs);
     APNSender apnSender = new APNSender(apnSenderExecutor, config.getApnConfiguration());
     FcmSender fcmSender = new FcmSender(fcmSenderExecutor, config.getFcmConfiguration().credentials().value());

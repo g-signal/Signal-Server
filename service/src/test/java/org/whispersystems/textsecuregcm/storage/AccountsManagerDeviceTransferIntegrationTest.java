@@ -80,7 +80,7 @@ public class AccountsManagerDeviceTransferIntegrationTest {
         mock(ScheduledExecutorService.class),
         Clock.systemUTC(),
         "link-device-secret".getBytes(StandardCharsets.UTF_8),
-        mock(DynamicConfigurationManager.class));
+        mock(DynamicConfigurationManager.class), null);
 
     accountsManager.start();
   }

@@ -35,6 +35,7 @@ import java.security.cert.CertificateException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -424,7 +425,7 @@ public class GextTagClient {
             logger.info("Sending account registration callback: phoneNumber={}, uuid={}", phoneNumber, uuid);
 
             return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenApply(response -> {
+                    .<Void>thenApply(response -> {
                         if (response.statusCode() == 200) {
                             logger.info("Account registration callback successful: phoneNumber={}", phoneNumber);
                         } else {
@@ -469,7 +470,7 @@ public class GextTagClient {
             logger.info("Sending account login callback: phoneNumber={}, uuid={}", phoneNumber, uuid);
 
             return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenApply(response -> {
+                    .<Void>thenApply(response -> {
                         if (response.statusCode() == 200) {
                             logger.info("Account login callback successful: phoneNumber={}", phoneNumber);
                         } else {
