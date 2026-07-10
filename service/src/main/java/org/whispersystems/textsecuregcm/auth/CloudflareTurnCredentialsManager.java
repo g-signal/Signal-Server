@@ -20,6 +20,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.annotation.Nullable;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.http.FaultTolerantHttpClient;
@@ -49,6 +50,9 @@ public class CloudflareTurnCredentialsManager {
         String credential,
         List<String> urls) {
     }
+  }
+
+  private record CloudflareTurnResponse2(List<CloudflareTurnResponse.IceServer> iceServers) {
   }
 
   public CloudflareTurnCredentialsManager(final String cloudflareTurnApiToken,
@@ -122,8 +126,20 @@ public class CloudflareTurnCredentialsManager {
       throw new IOException("Cloudflare Turn http failure : " + response.statusCode());
     }
 
-    final CloudflareTurnResponse cloudflareTurnResponse = SystemMapper.jsonMapper()
-        .readValue(response.body(), CloudflareTurnResponse.class);
+    CloudflareTurnResponse cloudflareTurnResponse = null;
+    try {
+      cloudflareTurnResponse = SystemMapper.jsonMapper()
+          .readValue(response.body(), CloudflareTurnResponse.class);
+    }catch (Exception e){
+      List<CloudflareTurnResponse.IceServer> iceServers = SystemMapper.jsonMapper()
+          .readValue(response.body(), CloudflareTurnResponse2.class).iceServers();
+      for(int i=0; i<iceServers.size(); i++){
+        if(StringUtils.isNotBlank(iceServers.get(i).credential)){
+          cloudflareTurnResponse = new CloudflareTurnResponse(iceServers.get(i));
+          break;
+        }
+      }
+    }
 
     return new TurnToken(
         cloudflareTurnResponse.iceServers().username(),
