@@ -264,6 +264,7 @@ import org.whispersystems.textsecuregcm.subscriptions.BankMandateTranslator;
 import org.whispersystems.textsecuregcm.subscriptions.BraintreeManager;
 import org.whispersystems.textsecuregcm.subscriptions.GooglePlayBillingManager;
 import org.whispersystems.textsecuregcm.subscriptions.StripeManager;
+import org.whispersystems.textsecuregcm.subscriptions.SubscriptionPaymentProcessor;
 import org.whispersystems.textsecuregcm.telephony.CarrierDataProvider;
 import org.whispersystems.textsecuregcm.telephony.hlrlookup.HlrLookupCarrierDataProvider;
 import org.whispersystems.textsecuregcm.util.BufferingInterceptor;
