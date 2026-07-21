@@ -148,6 +148,7 @@ import org.whispersystems.textsecuregcm.filters.TimestampResponseFilter;
 import org.whispersystems.textsecuregcm.grpc.AccountsAnonymousGrpcService;
 import org.whispersystems.textsecuregcm.grpc.AccountsGrpcService;
 import org.whispersystems.textsecuregcm.grpc.CallQualitySurveyGrpcService;
+import org.whispersystems.textsecuregcm.grpc.GrpcAllowListInterceptor;
 import org.whispersystems.textsecuregcm.grpc.ErrorMappingInterceptor;
 import org.whispersystems.textsecuregcm.grpc.ExternalServiceCredentialsAnonymousGrpcService;
 import org.whispersystems.textsecuregcm.grpc.ExternalServiceCredentialsGrpcService;
@@ -172,6 +173,7 @@ import org.whispersystems.textsecuregcm.limits.RateLimitByIpFilter;
 import org.whispersystems.textsecuregcm.limits.RateLimitChallengeManager;
 import org.whispersystems.textsecuregcm.limits.RateLimiters;
 import org.whispersystems.textsecuregcm.limits.RedisMessageDeliveryLoopMonitor;
+import org.whispersystems.textsecuregcm.mappers.BackupExceptionMapper;
 import org.whispersystems.textsecuregcm.mappers.CompletionExceptionMapper;
 import org.whispersystems.textsecuregcm.mappers.DeviceLimitExceededExceptionMapper;
 import org.whispersystems.textsecuregcm.mappers.GrpcStatusRuntimeExceptionMapper;
@@ -262,7 +264,8 @@ import org.whispersystems.textsecuregcm.subscriptions.BankMandateTranslator;
 import org.whispersystems.textsecuregcm.subscriptions.BraintreeManager;
 import org.whispersystems.textsecuregcm.subscriptions.GooglePlayBillingManager;
 import org.whispersystems.textsecuregcm.subscriptions.StripeManager;
-import org.whispersystems.textsecuregcm.subscriptions.SubscriptionPaymentProcessor;
+import org.whispersystems.textsecuregcm.telephony.CarrierDataProvider;
+import org.whispersystems.textsecuregcm.telephony.hlrlookup.HlrLookupCarrierDataProvider;
 import org.whispersystems.textsecuregcm.util.BufferingInterceptor;
 import org.whispersystems.textsecuregcm.util.ManagedAwsCrt;
 import org.whispersystems.textsecuregcm.util.ManagedExecutors;
@@ -588,6 +591,10 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         .maxThreads(2)
         .minThreads(2)
         .build();
+    ExecutorService hlrLookupHttpExecutor = ExecutorServiceBuilder.of(environment, "hlrLookup")
+        .maxThreads(2)
+        .minThreads(2)
+        .build();
 
     ExecutorService subscriptionProcessorExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
         "subscriptionProcessor",
@@ -641,6 +648,14 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     RegistrationRecoveryPasswordsManager registrationRecoveryPasswordsManager =
         new RegistrationRecoveryPasswordsManager(registrationRecoveryPasswords);
     UsernameHashZkProofVerifier usernameHashZkProofVerifier = new UsernameHashZkProofVerifier();
+
+    final CarrierDataProvider carrierDataProvider =
+        new HlrLookupCarrierDataProvider(config.getHlrLookupConfiguration().apiKey().value(),
+            config.getHlrLookupConfiguration().apiSecret().value(),
+            hlrLookupHttpExecutor,
+            config.getHlrLookupConfiguration().circuitBreakerConfigurationName(),
+            config.getHlrLookupConfiguration().retryConfigurationName(),
+            retryExecutor);
 
     RegistrationServiceClient registrationServiceClient = config.getRegistrationServiceConfiguration()
         .build(environment, registrationCallbackExecutor, registrationIdentityTokenRefreshExecutor);
@@ -912,6 +927,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     final MetricServerInterceptor metricServerInterceptor = new MetricServerInterceptor(Metrics.globalRegistry, clientReleaseManager);
 
     final ErrorMappingInterceptor errorMappingInterceptor = new ErrorMappingInterceptor();
+    final GrpcAllowListInterceptor grpcAllowListInterceptor =
+        new GrpcAllowListInterceptor(config.getGrpcAllowList().enableAll(), config.getGrpcAllowList().enabledServices(), config.getGrpcAllowList().enabledMethods());
     final RequestAttributesInterceptor requestAttributesInterceptor = new RequestAttributesInterceptor();
 
     final ValidatingInterceptor validatingInterceptor = new ValidatingInterceptor();
@@ -932,6 +949,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             // Note: interceptors run in the reverse order they are added; the remote deprecation filter
             // depends on the user-agent context so it has to come first here!
             validatingInterceptor,
+            grpcAllowListInterceptor,
             metricServerInterceptor,
             errorMappingInterceptor,
             remoteDeprecationFilter,
@@ -951,6 +969,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             // depends on the user-agent context so it has to come first here!
             grpcExternalRequestFilter,
             validatingInterceptor,
+            grpcAllowListInterceptor,
             metricServerInterceptor,
             errorMappingInterceptor,
             remoteDeprecationFilter,
@@ -1091,6 +1110,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         });
 
     spamFilter.map(SpamFilter::getReportedMessageListener).ifPresent(reportMessageManager::addListener);
+    spamFilter.map(SpamFilter::getMessageDeliveryListener).ifPresent(messageSender::addMessageDeliveryListener);
 
     final HttpClient shortCodeRetrieverHttpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_2)
         .connectTimeout(Duration.ofSeconds(10)).build();
@@ -1123,7 +1143,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         new CallLinkController(rateLimiters, callingGenericZkSecretParams),
         new CallQualitySurveyController(callQualitySurveyManager),
         new CertificateController(accountsManager, new CertificateGenerator(config.getDeliveryCertificate().certificate(),
-            config.getDeliveryCertificate().ecPrivateKey(), config.getDeliveryCertificate().expiresDays()),
+            config.getDeliveryCertificate().ecPrivateKey(), config.getDeliveryCertificate().expiresDays(), config.getDeliveryCertificate().embedSigner()),
             zkAuthOperations, callingGenericZkSecretParams, clock),
         new ChallengeController(accountsManager, rateLimitChallengeManager, challengeConstraintChecker),
         new DeviceController(accountsManager, clientPublicKeysManager, rateLimiters, persistentTimer, config.getMaxDevices()),
@@ -1157,7 +1177,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             config.getCdnConfiguration().bucket()),
         new VerificationController(registrationServiceClient, new VerificationSessionManager(verificationSessions),
             pushNotificationManager, registrationCaptchaManager, registrationRecoveryPasswordsManager,
-            phoneNumberIdentifiers, rateLimiters, accountsManager, registrationFraudChecker,
+            phoneNumberIdentifiers, rateLimiters, accountsManager, carrierDataProvider, registrationFraudChecker,
             dynamicConfigurationManager, clock),
         new VoipController(accountsManager, pushNotificationManager)
     );
@@ -1240,6 +1260,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         new ObsoletePhoneNumberFormatExceptionMapper(),
         new RegistrationServiceSenderExceptionMapper(),
         new SubscriptionExceptionMapper(),
+        new BackupExceptionMapper(),
         new JsonMappingExceptionMapper()
     ).forEach(exceptionMapper -> {
       environment.jersey().register(exceptionMapper);

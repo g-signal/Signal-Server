@@ -5,6 +5,9 @@
 package org.whispersystems.textsecuregcm.controllers;
 
 import io.dropwizard.auth.Auth;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.Tags;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -25,6 +28,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -57,6 +61,7 @@ import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.identity.ServiceIdentifier;
 import org.whispersystems.textsecuregcm.limits.RateLimitedByIp;
 import org.whispersystems.textsecuregcm.limits.RateLimiters;
+import org.whispersystems.textsecuregcm.metrics.UserAgentTagUtil;
 import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.Device;
@@ -70,6 +75,8 @@ import org.whispersystems.textsecuregcm.util.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.whispersystems.textsecuregcm.metrics.MetricsUtil.name;
+
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 @Path("/v1/accounts")
 @io.swagger.v3.oas.annotations.tags.Tag(name = "Account")
@@ -79,6 +86,10 @@ public class AccountController {
   public static final int MAXIMUM_USERNAME_HASHES_LIST_LENGTH = 20;
   public static final int USERNAME_HASH_LENGTH = 32;
   public static final int MAXIMUM_USERNAME_CIPHERTEXT_LENGTH = 128;
+
+  private static final String RECOVERY_PASSWORD_SET_COUNTER_NAME =
+      name(AccountController.class, "recoveryPasswordSet");
+
 
   private final AccountsManager accounts;
   private final RateLimiters rateLimiters;
@@ -322,7 +333,8 @@ public class AccountController {
   @Produces(MediaType.APPLICATION_JSON)
   public void setAccountAttributes(
       @Auth AuthenticatedDevice auth,
-      @HeaderParam(HeaderUtils.X_SIGNAL_AGENT) String userAgent,
+      @HeaderParam(HttpHeaders.USER_AGENT) String userAgent,
+      @HeaderParam(HeaderUtils.X_SIGNAL_AGENT) String signalAgent,
       @NotNull @Valid AccountAttributes attributes) {
     final Account account = accounts.getByAccountIdentifier(auth.accountIdentifier())
         .orElseThrow(() -> new WebApplicationException(Status.UNAUTHORIZED));
@@ -333,8 +345,8 @@ public class AccountController {
         d.setName(attributes.getName());
         d.setLastSeen(Util.todayInMillis());
         d.setCapabilities(attributes.getCapabilities());
-        if (StringUtils.isNotBlank(userAgent)) {
-          d.setUserAgent(userAgent);
+        if (StringUtils.isNotBlank(signalAgent)) {
+          d.setUserAgent(signalAgent);
         }
       });
 
@@ -345,8 +357,15 @@ public class AccountController {
     });
 
     // if registration recovery password was sent to us, store it (or refresh its expiration)
-    attributes.recoveryPassword().ifPresent(registrationRecoveryPassword ->
-        registrationRecoveryPasswordsManager.store(updatedAccount.getIdentifier(IdentityType.PNI), registrationRecoveryPassword));
+    attributes.recoveryPassword().ifPresent(registrationRecoveryPassword -> {
+      final boolean rrpCreated = registrationRecoveryPasswordsManager
+          .store(updatedAccount.getIdentifier(IdentityType.PNI), registrationRecoveryPassword)
+          .join();
+      Metrics.counter(RECOVERY_PASSWORD_SET_COUNTER_NAME, Tags.of(
+              UserAgentTagUtil.getPlatformTag(userAgent),
+              Tag.of("outcome", rrpCreated ? "created" : "updated")))
+          .increment();
+    });
   }
 
   @GET

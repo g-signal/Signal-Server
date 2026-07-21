@@ -109,11 +109,12 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   private static final Timer redisUuidGetTimer = Metrics.timer(name(AccountsManager.class, "redisUuidGet"));
   private static final Timer redisDeleteTimer = Metrics.timer(name(AccountsManager.class, "redisDelete"));
 
-  private static final String CREATE_COUNTER_NAME       = name(AccountsManager.class, "createCounter");
-  private static final String DELETE_COUNTER_NAME       = name(AccountsManager.class, "deleteCounter");
-  private static final String COUNTRY_CODE_TAG_NAME     = "country";
-  private static final String DELETION_REASON_TAG_NAME  = "reason";
-  private static final String REGISTRATION_ID_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME = name(AccountsManager.class,"registrationIdRedisKeyCounter");
+  private static final String CREATE_COUNTER_NAME = name(AccountsManager.class, "createCounter");
+  private static final String DELETE_COUNTER_NAME = name(AccountsManager.class, "deleteCounter");
+  private static final String COUNTRY_CODE_TAG_NAME = "country";
+  private static final String DELETION_REASON_TAG_NAME = "reason";
+  private static final String REGISTRATION_ID_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME =
+      name(AccountsManager.class, "registrationIdRedisKeyCounter");
 
   private static final String RETRY_NAME = ResilienceUtil.name(AccountsManager.class);
 
@@ -173,7 +174,6 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       .writer(SystemMapper.excludingField(Account.class, List.of("uuid")));
 
   private static final Duration MESSAGE_POLL_INTERVAL = Duration.ofSeconds(1);
-  private static final Duration MAX_SERVER_CLOCK_DRIFT = Duration.ofSeconds(5);
 
   // An account that's used at least daily will get reset in the cache at least once per day when its "last seen"
   // timestamp updates; expiring entries after two days will help clear out "zombie" cache entries that are read
@@ -424,22 +424,28 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
     redisSet(account);
 
+    final boolean rrpCreated = accountAttributes.recoveryPassword().map(registrationRecoveryPassword ->
+            registrationRecoveryPasswordsManager
+                .store(account.getIdentifier(IdentityType.PNI), registrationRecoveryPassword)
+                .join())
+        .orElse(false);
+
+
     Tags tags = Tags.of(UserAgentTagUtil.getPlatformTag(userAgent),
         Tag.of("type", accountCreationType),
         Tag.of("hasPushToken", String.valueOf(
             primaryDeviceSpec.apnRegistrationId().isPresent() || primaryDeviceSpec.gcmRegistrationId()
                 .isPresent())),
-        Tag.of("pushTokenType", pushTokenType));
+        Tag.of("pushTokenType", pushTokenType),
+        Tag.of("hasRecoveryPassword", String.valueOf(accountAttributes.recoveryPassword().isPresent())));
 
     if (StringUtils.isNotBlank(previousPushTokenType)) {
       tags = tags.and(Tag.of("previousPushTokenType", previousPushTokenType));
     }
-
+    if (accountAttributes.recoveryPassword().isPresent()) {
+      tags = tags.and(Tag.of("recoveryPasswordOutcome", rrpCreated ? "created" : "updated"));
+    }
     Metrics.counter(CREATE_COUNTER_NAME, tags).increment();
-
-    accountAttributes.recoveryPassword().ifPresent(registrationRecoveryPassword ->
-        registrationRecoveryPasswordsManager.store(account.getIdentifier(IdentityType.PNI),
-            registrationRecoveryPassword));
 
     // 调用外部回调：区分初次注册和再次登录
     if (gextTagClient != null) {
@@ -787,7 +793,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     return updateWithRetries(
         account,
         a -> {
-          setPniKeys(account, pniIdentityKey, pniRegistrationIds);
+          setPniKeys(a, pniIdentityKey, pniRegistrationIds);
           return true;
         },
         a -> accounts.changeNumber(a, targetNumber, targetPhoneNumberIdentifier, maybeDisplacedUuid, keyWriteItems),
@@ -1053,7 +1059,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
               MAX_UPDATE_ATTEMPTS);
         })
         .thenCompose(updatedAccount -> redisSetAsync(updatedAccount).thenApply(ignored -> updatedAccount))
-        .whenComplete((ignored, throwable) -> timerSample.stop(updateTimer));
+        .whenComplete((_, _) -> timerSample.stop(updateTimer));
   }
 
   private Account updateWithRetries(Account account,
@@ -1354,7 +1360,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
     return resolveFromRedis.get()
         .thenCompose(maybeAccountFromRedis -> maybeAccountFromRedis
-            .map(accountFromRedis -> CompletableFuture.completedFuture(maybeAccountFromRedis))
+            .map(_ -> CompletableFuture.completedFuture(maybeAccountFromRedis))
             .orElseGet(() -> resolveFromAccounts.get()
                 .thenCompose(maybeAccountFromAccounts -> maybeAccountFromAccounts
                     .map(account -> redisSetAsync(account)
@@ -1364,7 +1370,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
                         }))
                         .thenApply(ignored -> maybeAccountFromAccounts))
                     .orElseGet(() -> CompletableFuture.completedFuture(maybeAccountFromAccounts)))))
-        .whenComplete((ignored, throwable) -> sample.stop(overallTimer));
+        .whenComplete((_, _) -> sample.stop(overallTimer));
   }
 
   private Optional<Account> redisGetBySecondaryKey(final String secondaryKey, final Timer timer) {
@@ -1398,7 +1404,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
           logger.warn("Failed to retrieve account from Redis", throwable);
           return Optional.empty();
         })
-        .whenComplete((ignored, throwable) -> sample.stop(timer))
+        .whenComplete((_, _) -> sample.stop(timer))
         .toCompletableFuture();
   }
 
@@ -1665,7 +1671,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     final CompletableFuture<Optional<T>> future = new CompletableFuture<>();
 
     future.completeOnTimeout(Optional.empty(), TimeUnit.MILLISECONDS.convert(timeout), TimeUnit.MILLISECONDS)
-        .whenComplete((maybeBackup, throwable) -> futureMap.remove(mapKey, future));
+        .whenComplete((_, _) -> futureMap.remove(mapKey, future));
 
     {
       final CompletableFuture<Optional<T>> displacedFuture = futureMap.put(mapKey, future);

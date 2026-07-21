@@ -31,6 +31,7 @@ import org.whispersystems.textsecuregcm.configuration.DeviceCheckConfiguration;
 import org.whispersystems.textsecuregcm.configuration.DirectoryV2Configuration;
 import org.whispersystems.textsecuregcm.configuration.DynamoDbClientFactory;
 import org.whispersystems.textsecuregcm.configuration.DynamoDbTables;
+import org.whispersystems.textsecuregcm.configuration.GrpcAllowListConfiguration;
 import org.whispersystems.textsecuregcm.configuration.ExternalRequestFilterConfiguration;
 import org.whispersystems.textsecuregcm.configuration.FaultTolerantRedisClientFactory;
 import org.whispersystems.textsecuregcm.configuration.FaultTolerantRedisClusterFactory;
@@ -39,6 +40,7 @@ import org.whispersystems.textsecuregcm.configuration.GcpAttachmentsConfiguratio
 import org.whispersystems.textsecuregcm.configuration.GenericZkConfig;
 import org.whispersystems.textsecuregcm.configuration.GooglePlayBillingConfiguration;
 import org.whispersystems.textsecuregcm.configuration.GrpcConfiguration;
+import org.whispersystems.textsecuregcm.configuration.HlrLookupConfiguration;
 import org.whispersystems.textsecuregcm.configuration.IdlePrimaryDeviceReminderConfiguration;
 import org.whispersystems.textsecuregcm.configuration.KeyTransparencyServiceConfiguration;
 import org.whispersystems.textsecuregcm.configuration.LinkDeviceSecretConfiguration;
@@ -339,6 +341,11 @@ public class WhisperServerConfiguration extends Configuration {
   @JsonProperty
   private Map<String, @Valid RetryConfiguration> retries = Collections.emptyMap();
 
+  @Valid
+  @NotNull
+  @JsonProperty
+  private HlrLookupConfiguration hlrLookup;
+
   @JsonProperty
   @Valid
   @NotNull
@@ -348,6 +355,11 @@ public class WhisperServerConfiguration extends Configuration {
   @Valid
   @JsonProperty
   private GrpcConfiguration grpc;
+
+  @NotNull
+  @Valid
+  @JsonProperty
+  private GrpcAllowListConfiguration grpcAllowList = new GrpcAllowListConfiguration();
 
   @Valid
   @NotNull
@@ -594,11 +606,19 @@ public class WhisperServerConfiguration extends Configuration {
     return grpc;
   }
 
+  public GrpcAllowListConfiguration getGrpcAllowList() {
+    return grpcAllowList;
+  }
+
   public S3ObjectMonitorFactory getAsnTableConfiguration() {
     return asnTable;
   }
 
   public CallQualitySurveyConfiguration getCallQualitySurveyConfiguration() {
     return callQualitySurvey;
+  }
+
+  public HlrLookupConfiguration getHlrLookupConfiguration() {
+    return hlrLookup;
   }
 }

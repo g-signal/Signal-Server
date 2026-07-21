@@ -50,6 +50,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -60,7 +61,7 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
-import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.apache.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,6 +77,7 @@ import org.whispersystems.textsecuregcm.entities.VerificationSessionResponse;
 import org.whispersystems.textsecuregcm.filters.RemoteAddressFilter;
 import org.whispersystems.textsecuregcm.limits.RateLimiters;
 import org.whispersystems.textsecuregcm.mappers.RegistrationServiceSenderExceptionMapper;
+import org.whispersystems.textsecuregcm.metrics.DevicePlatformUtil;
 import org.whispersystems.textsecuregcm.metrics.UserAgentTagUtil;
 import org.whispersystems.textsecuregcm.push.PushNotification;
 import org.whispersystems.textsecuregcm.push.PushNotificationManager;
@@ -89,15 +91,20 @@ import org.whispersystems.textsecuregcm.registration.TransportNotAllowedExceptio
 import org.whispersystems.textsecuregcm.registration.VerificationSession;
 import org.whispersystems.textsecuregcm.spam.RegistrationFraudChecker;
 import org.whispersystems.textsecuregcm.spam.RegistrationFraudChecker.VerificationCheck;
+import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.DynamicConfigurationManager;
 import org.whispersystems.textsecuregcm.storage.PhoneNumberIdentifiers;
 import org.whispersystems.textsecuregcm.storage.RegistrationRecoveryPasswordsManager;
 import org.whispersystems.textsecuregcm.storage.VerificationSessionManager;
+import org.whispersystems.textsecuregcm.telephony.CarrierData;
+import org.whispersystems.textsecuregcm.telephony.CarrierDataException;
+import org.whispersystems.textsecuregcm.telephony.CarrierDataProvider;
 import org.whispersystems.textsecuregcm.util.ExceptionUtils;
 import org.whispersystems.textsecuregcm.util.ObsoletePhoneNumberFormatException;
 import org.whispersystems.textsecuregcm.util.Pair;
 import org.whispersystems.textsecuregcm.util.Util;
+import org.whispersystems.textsecuregcm.util.ua.ClientPlatform;
 
 @Path("/v1/verification")
 @io.swagger.v3.oas.annotations.tags.Tag(name = "Verification")
@@ -120,6 +127,10 @@ public class VerificationController {
   private static final String VERIFICATION_TRANSPORT_TAG_NAME = "transport";
   private static final String VERIFIED_COUNTER_NAME = name(VerificationController.class, "verified");
   private static final String SUCCESS_TAG_NAME = "success";
+  private static final String RECOVERY_PASSWORD_REMOVED_TAG_NAME = "recoveryPasswordRemoved";
+  private static final String REREGISTRATION_TAG_NAME = "reregistration";
+  private static final String EXISTING_ACCOUNT_PLATFORM = "existingAccountPlatform";
+  private static final String EXISTING_ACCOUNT_RECENTLY_SEEN_TAG_NAME = "existingAccountRecentlySeen";
 
   private final RegistrationServiceClient registrationServiceClient;
   private final VerificationSessionManager verificationSessionManager;
@@ -129,6 +140,7 @@ public class VerificationController {
   private final PhoneNumberIdentifiers phoneNumberIdentifiers;
   private final RateLimiters rateLimiters;
   private final AccountsManager accountsManager;
+  private final CarrierDataProvider carrierDataProvider;
   private final RegistrationFraudChecker registrationFraudChecker;
   private final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager;
   private final Clock clock;
@@ -141,6 +153,7 @@ public class VerificationController {
       final PhoneNumberIdentifiers phoneNumberIdentifiers,
       final RateLimiters rateLimiters,
       final AccountsManager accountsManager,
+      final CarrierDataProvider carrierDataProvider,
       final RegistrationFraudChecker registrationFraudChecker,
       final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager,
       final Clock clock) {
@@ -152,6 +165,7 @@ public class VerificationController {
     this.phoneNumberIdentifiers = phoneNumberIdentifiers;
     this.rateLimiters = rateLimiters;
     this.accountsManager = accountsManager;
+    this.carrierDataProvider = carrierDataProvider;
     this.registrationFraudChecker = registrationFraudChecker;
     this.dynamicConfigurationManager = dynamicConfigurationManager;
     this.clock = clock;
@@ -164,7 +178,7 @@ public class VerificationController {
   @Operation(
       summary = "Creates a new verification session for a specific phone number",
       description = """
-          Initiates a session to be able to verify the phone number for account registration. Check the response and 
+          Initiates a session to be able to verify the phone number for account registration. Check the response and
           submit requested information at PATCH /session/{sessionId}
           """)
   @ApiResponse(responseCode = "200", description = "The verification session was created successfully", useReturnTypeSchema = true)
@@ -187,14 +201,29 @@ public class VerificationController {
       throw new ServerErrorException("could not parse already validated number", Response.Status.INTERNAL_SERVER_ERROR);
     }
 
+    Optional<CarrierData> maybeCarrierData;
+
+    if (dynamicConfigurationManager.getConfiguration().getCarrierDataLookupConfiguration().enabled()) {
+      try {
+        maybeCarrierData = carrierDataProvider.lookupCarrierData(phoneNumber,
+            dynamicConfigurationManager.getConfiguration().getCarrierDataLookupConfiguration().maxCacheAge());
+      } catch (final IOException | CarrierDataException e) {
+        logger.warn("Failed to retrieve carrier data", e);
+        maybeCarrierData = Optional.empty();
+      }
+    } else {
+      maybeCarrierData = Optional.empty();
+    }
+
     final RegistrationServiceSession registrationServiceSession;
     try {
       final String sourceHost = (String) requestContext.getProperty(RemoteAddressFilter.REMOTE_ADDRESS_ATTRIBUTE_NAME);
 
-      registrationServiceSession = registrationServiceClient.createRegistrationSession(phoneNumber, sourceHost,
+      registrationServiceSession = registrationServiceClient.createRegistrationSession(phoneNumber,
+          sourceHost,
           accountsManager.getByE164(request.number()).isPresent(),
-          request.updateVerificationSessionRequest().mcc(),
-          request.updateVerificationSessionRequest().mnc(),
+          maybeCarrierData.flatMap(CarrierData::mcc).orElse(null),
+          maybeCarrierData.flatMap(CarrierData::mnc).orElse(null),
           REGISTRATION_RPC_TIMEOUT).join();
     } catch (final CancellationException e) {
 
@@ -208,16 +237,24 @@ public class VerificationController {
       throw new ServerErrorException(Response.Status.INTERNAL_SERVER_ERROR, e);
     }
 
-    VerificationSession verificationSession = new VerificationSession(null, new ArrayList<>(),
-        Collections.emptyList(), null, null, false,
-        clock.millis(), clock.millis(), registrationServiceSession.expiration());
+    VerificationSession verificationSession = new VerificationSession(registrationServiceSession.encodedSessionId(),
+        null,
+        maybeCarrierData.orElse(null),
+        new ArrayList<>(),
+        Collections.emptyList(),
+        null,
+        null,
+        false,
+        clock.millis(),
+        clock.millis(),
+        registrationServiceSession.expiration());
 
     verificationSession = handlePushToken(pushTokenAndType, verificationSession);
     // unconditionally request a captcha -- it will either be the only requested information, or a fallback
     // if a push challenge sent in `handlePushToken` doesn't arrive in time
     verificationSession.requestedInformation().add(VerificationSession.Information.CAPTCHA);
 
-    storeVerificationSession(registrationServiceSession, verificationSession);
+    storeVerificationSession(verificationSession);
 
     return buildResponse(registrationServiceSession, verificationSession);
   }
@@ -229,9 +266,9 @@ public class VerificationController {
   @Operation(
       summary = "Update a registration verification session",
       description = """
-          Updates the session with requested information like an answer to a push challenge or captcha. 
-          If `requestedInformation` in the response is empty, and `allowedToRequestCode` is `true`, proceed to call 
-          `POST /session/{sessionId}/code`. If `requestedInformation` is empty and `allowedToRequestCode` is `false`, 
+          Updates the session with requested information like an answer to a push challenge or captcha.
+          If `requestedInformation` in the response is empty, and `allowedToRequestCode` is `true`, proceed to call
+          `POST /session/{sessionId}/code`. If `requestedInformation` is empty and `allowedToRequestCode` is `false`,
           then the caller must create a new verification session.
           """)
   @ApiResponse(responseCode = "200", description = "Session was updated successfully with the information provided", useReturnTypeSchema = true)
@@ -290,22 +327,20 @@ public class VerificationController {
     } finally {
       // Each of the handle* methods may update requestedInformation, submittedInformation, and allowedToRequestCode,
       // and we want to be sure to store a changes, even if a later method throws
-      updateStoredVerificationSession(registrationServiceSession, verificationSession);
+      updateStoredVerificationSession(verificationSession);
     }
 
     return buildResponse(registrationServiceSession, verificationSession);
   }
 
-  private void storeVerificationSession(final RegistrationServiceSession registrationServiceSession,
-      final VerificationSession verificationSession) {
-    verificationSessionManager.insert(registrationServiceSession.encodedSessionId(), verificationSession)
+  private void storeVerificationSession(final VerificationSession verificationSession) {
+    verificationSessionManager.insert(verificationSession)
         .orTimeout(DYNAMODB_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
         .join();
   }
 
-  private void updateStoredVerificationSession(final RegistrationServiceSession registrationServiceSession,
-      final VerificationSession verificationSession) {
-    verificationSessionManager.update(registrationServiceSession.encodedSessionId(), verificationSession)
+  private void updateStoredVerificationSession(final VerificationSession verificationSession) {
+    verificationSessionManager.update(verificationSession)
         .orTimeout(DYNAMODB_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
         .join();
   }
@@ -326,10 +361,17 @@ public class VerificationController {
         requestedInformation.add(VerificationSession.Information.PUSH_CHALLENGE);
         requestedInformation.addAll(verificationSession.requestedInformation());
 
-        verificationSession = new VerificationSession(generatePushChallenge(), requestedInformation,
-            verificationSession.submittedInformation(), verificationSession.smsSenderOverride(),
-            verificationSession.voiceSenderOverride(), verificationSession.allowedToRequestCode(),
-            verificationSession.createdTimestamp(), clock.millis(), verificationSession.remoteExpirationSeconds()
+        verificationSession = new VerificationSession(verificationSession.sessionId(),
+            generatePushChallenge(),
+            verificationSession.carrierData(),
+            requestedInformation,
+            verificationSession.submittedInformation(),
+            verificationSession.smsSenderOverride(),
+            verificationSession.voiceSenderOverride(),
+            verificationSession.allowedToRequestCode(),
+            verificationSession.createdTimestamp(),
+            clock.millis(),
+            verificationSession.remoteExpirationSeconds()
         );
       }
 
@@ -394,9 +436,16 @@ public class VerificationController {
           || requestedInformation.remove(VerificationSession.Information.PUSH_CHALLENGE))
           && requestedInformation.isEmpty();
 
-      verificationSession = new VerificationSession(verificationSession.pushChallenge(), requestedInformation,
-          submittedInformation, verificationSession.smsSenderOverride(), verificationSession.voiceSenderOverride(),
-          allowedToRequestCode, verificationSession.createdTimestamp(), clock.millis(),
+      verificationSession = new VerificationSession(verificationSession.sessionId(),
+          verificationSession.pushChallenge(),
+          verificationSession.carrierData(),
+          requestedInformation,
+          submittedInformation,
+          verificationSession.smsSenderOverride(),
+          verificationSession.voiceSenderOverride(),
+          allowedToRequestCode,
+          verificationSession.createdTimestamp(),
+          clock.millis(),
           verificationSession.remoteExpirationSeconds());
 
     } else if (pushChallengePresent) {
@@ -461,9 +510,16 @@ public class VerificationController {
           || requestedInformation.remove(VerificationSession.Information.CAPTCHA))
           && requestedInformation.isEmpty();
 
-      verificationSession = new VerificationSession(verificationSession.pushChallenge(), requestedInformation,
-          submittedInformation, verificationSession.smsSenderOverride(), verificationSession.voiceSenderOverride(),
-          allowedToRequestCode, verificationSession.createdTimestamp(), clock.millis(),
+      verificationSession = new VerificationSession(verificationSession.sessionId(),
+          verificationSession.pushChallenge(),
+          verificationSession.carrierData(),
+          requestedInformation,
+          submittedInformation,
+          verificationSession.smsSenderOverride(),
+          verificationSession.voiceSenderOverride(),
+          allowedToRequestCode,
+          verificationSession.createdTimestamp(),
+          clock.millis(),
           verificationSession.remoteExpirationSeconds());
     } else {
       throw new ForbiddenException();
@@ -511,9 +567,9 @@ public class VerificationController {
       content = @Content(schema = @Schema(implementation = VerificationSessionResponse.class)))
   @ApiResponse(responseCode = "422", description = "Request did not pass validation")
   @ApiResponse(responseCode = "429", description = """
-      Too may attempts; the caller is not permitted to send a verification code via the requested channel at this time 
-      and may need to wait before trying again; if the session metadata does not specify a time at which the caller may 
-      try again, then the caller has exhausted their permitted attempts and must either try a different transport or 
+      Too may attempts; the caller is not permitted to send a verification code via the requested channel at this time
+      and may need to wait before trying again; if the session metadata does not specify a time at which the caller may
+      try again, then the caller has exhausted their permitted attempts and must either try a different transport or
       create a new verification session.
       """,
       content = @Content(schema = @Schema(implementation = VerificationSessionResponse.class)),
@@ -523,10 +579,10 @@ public class VerificationController {
           schema = @Schema(implementation = Integer.class)
       ))
   @ApiResponse(responseCode = "440", description = """
-      The attempt to send a verification code failed because an external service (e.g. the SMS provider) refused to 
-      deliver the code. This may be a temporary or permanent failure, as indicated in the response body. If temporary, 
-      clients may try again after a reasonable delay. If permanent, clients should not retry the request and should 
-      communicate the permanent failure to the end user. Permanent failures may result in the server disallowing all 
+      The attempt to send a verification code failed because an external service (e.g. the SMS provider) refused to
+      deliver the code. This may be a temporary or permanent failure, as indicated in the response body. If temporary,
+      clients may try again after a reasonable delay. If permanent, clients should not retry the request and should
+      communicate the permanent failure to the end user. Permanent failures may result in the server disallowing all
       future attempts to request or submit verification codes (since those attempts would be all but guaranteed to fail).
       """,
       content = @Content(schema = @Schema(implementation = RegistrationServiceSenderExceptionMapper.SendVerificationCodeFailureResponse.class)))
@@ -574,7 +630,7 @@ public class VerificationController {
       case "ios" -> ClientType.IOS;
       case "android-2021-03" -> ClientType.ANDROID_WITH_FCM;
       default -> {
-        if (StringUtils.startsWithIgnoreCase(verificationCodeRequest.client(), "android")) {
+        if (Strings.CI.startsWith(verificationCodeRequest.client(), "android")) {
           yield ClientType.ANDROID_WITHOUT_FCM;
         }
         yield ClientType.UNKNOWN;
@@ -598,38 +654,41 @@ public class VerificationController {
       throw new ServerErrorException("registration service unavailable", Response.Status.SERVICE_UNAVAILABLE);
     } catch (final CompletionException e) {
       final Throwable unwrappedException = ExceptionUtils.unwrap(e);
-      if (unwrappedException instanceof RateLimitExceededException rateLimitExceededException) {
-        if (rateLimitExceededException instanceof VerificationSessionRateLimitExceededException ve) {
-          final Response response = buildResponseForRateLimitExceeded(verificationSession, ve.getRegistrationSession(),
-              ve.getRetryDuration());
-          throw new ClientErrorException(response);
+      switch (unwrappedException) {
+        case RateLimitExceededException rateLimitExceededException -> {
+          if (rateLimitExceededException instanceof VerificationSessionRateLimitExceededException ve) {
+            final Response response = buildResponseForRateLimitExceeded(verificationSession,
+                ve.getRegistrationSession(),
+                ve.getRetryDuration());
+            throw new ClientErrorException(response);
+          }
+
+          throw new RateLimitExceededException(rateLimitExceededException.getRetryDuration().orElse(null));
         }
+        case RegistrationServiceException registrationServiceException ->
+            throw registrationServiceException.getRegistrationSession()
+                .map(s -> buildResponse(s, verificationSession))
+                .map(verificationSessionResponse -> {
+                  final Response response = registrationServiceException instanceof TransportNotAllowedException
+                      ? Response.status(418).entity(verificationSessionResponse).build()
+                      : Response.status(Response.Status.CONFLICT).entity(verificationSessionResponse).build();
 
-        throw new RateLimitExceededException(rateLimitExceededException.getRetryDuration().orElse(null));
-      } else if (unwrappedException instanceof RegistrationServiceException registrationServiceException) {
-
-        throw registrationServiceException.getRegistrationSession()
-            .map(s -> buildResponse(s, verificationSession))
-            .map(verificationSessionResponse -> {
-              final Response response = registrationServiceException instanceof TransportNotAllowedException
-                  ? Response.status(418).entity(verificationSessionResponse).build()
-                  : Response.status(Response.Status.CONFLICT).entity(verificationSessionResponse).build();
-
-              return new ClientErrorException(response);
-            })
-            .orElseGet(NotFoundException::new);
-
-      } else if (unwrappedException instanceof RegistrationFraudException) {
-        if (dynamicConfigurationManager.getConfiguration().getRegistrationConfiguration().squashDeclinedAttemptErrors()) {
-          return buildResponse(registrationServiceSession, verificationSession);
-        } else {
-          throw unwrappedException.getCause();
+                  return new ClientErrorException(response);
+                })
+                .orElseGet(NotFoundException::new);
+        case RegistrationFraudException _ -> {
+          if (dynamicConfigurationManager.getConfiguration().getRegistrationConfiguration()
+              .squashDeclinedAttemptErrors()) {
+            return buildResponse(registrationServiceSession, verificationSession);
+          } else {
+            throw unwrappedException.getCause();
+          }
         }
-      } else if (unwrappedException instanceof RegistrationServiceSenderException) {
-        throw unwrappedException;
-      } else {
-        logger.error("Registration service failure", unwrappedException);
-        throw new ServerErrorException(Response.Status.INTERNAL_SERVER_ERROR);
+        case RegistrationServiceSenderException _ -> throw unwrappedException;
+        case null, default -> {
+          logger.error("Registration service failure", unwrappedException);
+          throw new ServerErrorException(Response.Status.INTERNAL_SERVER_ERROR);
+        }
       }
     }
 
@@ -661,8 +720,8 @@ public class VerificationController {
   @ApiResponse(responseCode = "409", description = "The session is already verified or no code has been requested yet for this session",
       content = @Content(schema = @Schema(implementation = VerificationSessionResponse.class)))
   @ApiResponse(responseCode = "429", description = """
-      Too many attempts; the caller is not permitted to submit a verification code at this time and may need to wait 
-      before trying again; if the session metadata does not specify a time at which the caller may try again, then the 
+      Too many attempts; the caller is not permitted to submit a verification code at this time and may need to wait
+      before trying again; if the session metadata does not specify a time at which the caller may try again, then the
       caller has exhausted their permitted attempts and must create a new verification session.
       """,
       content = @Content(schema = @Schema(implementation = VerificationSessionResponse.class)),
@@ -721,16 +780,43 @@ public class VerificationController {
       }
     }
 
+    boolean existingRRP = false;
     if (resultSession.verified()) {
-      registrationRecoveryPasswordsManager.remove(phoneNumberIdentifiers.getPhoneNumberIdentifier(registrationServiceSession.number()).join());
+      existingRRP = registrationRecoveryPasswordsManager.remove(phoneNumberIdentifiers.getPhoneNumberIdentifier(registrationServiceSession.number()).join()).join();
     }
 
-    Metrics.counter(VERIFIED_COUNTER_NAME, Tags.of(
-            UserAgentTagUtil.getPlatformTag(userAgent),
-            Tag.of(COUNTRY_CODE_TAG_NAME, Util.getCountryCode(registrationServiceSession.number())),
-            Tag.of(REGION_CODE_TAG_NAME, Util.getRegion(registrationServiceSession.number())),
-            Tag.of(SUCCESS_TAG_NAME, Boolean.toString(resultSession.verified()))))
-        .increment();
+    Optional<Account> maybeExistingAccount;
+    try {
+      maybeExistingAccount = accountsManager.getByE164(registrationServiceSession.number());
+    } catch (RuntimeException e) {
+      // Only for metrics, so it's ok if we fail to lookup the account
+      maybeExistingAccount = Optional.empty();
+    }
+
+    Tags tags = Tags.of(
+        UserAgentTagUtil.getPlatformTag(userAgent),
+        Tag.of(COUNTRY_CODE_TAG_NAME, Util.getCountryCode(registrationServiceSession.number())),
+        Tag.of(REGION_CODE_TAG_NAME, Util.getRegion(registrationServiceSession.number())),
+        Tag.of(SUCCESS_TAG_NAME, Boolean.toString(resultSession.verified())),
+        Tag.of(RECOVERY_PASSWORD_REMOVED_TAG_NAME, Boolean.toString(existingRRP)),
+        Tag.of(REREGISTRATION_TAG_NAME, Boolean.toString(maybeExistingAccount.isPresent())));
+
+    if (maybeExistingAccount.isPresent()) {
+      final Account existingAccount = maybeExistingAccount.get();
+      final Duration timeSinceLastSeen =
+          Duration.between(Instant.ofEpochMilli(existingAccount.getLastSeen()), clock.instant());
+      // Clients may reuse recent SVR2 credentials to authenticate via recovery password instead of SMS verification.
+      // If this is a re-registering account, check if the client could possibly have an unexpired SVR2 credential.
+      final boolean recentlySeen = timeSinceLastSeen.compareTo(SecureValueRecovery2Controller.MAX_AGE) < 0;
+      final String existingPlatform = DevicePlatformUtil
+          .getDevicePlatform(existingAccount.getPrimaryDevice())
+          .map(ClientPlatform::name).orElse("unknown");
+      tags = tags
+          .and(EXISTING_ACCOUNT_PLATFORM, existingPlatform)
+          .and(EXISTING_ACCOUNT_RECENTLY_SEEN_TAG_NAME, Boolean.toString(recentlySeen));
+    }
+
+    Metrics.counter(VERIFIED_COUNTER_NAME, tags).increment();
 
     return buildResponse(resultSession, verificationSession);
   }
@@ -787,7 +873,7 @@ public class VerificationController {
   }
 
   /**
-   * @throws NotFoundException if the session is has no record
+   * @throws NotFoundException if the session has no record
    */
   private VerificationSession retrieveVerificationSession(final RegistrationServiceSession registrationServiceSession) {
 

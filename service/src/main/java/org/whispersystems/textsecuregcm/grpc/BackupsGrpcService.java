@@ -5,6 +5,7 @@
 package org.whispersystems.textsecuregcm.grpc;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Empty;
 import io.grpc.Status;
 import io.micrometer.core.instrument.Tag;
 import java.time.Clock;
@@ -14,12 +15,13 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import org.signal.chat.backup.GetBackupAuthCredentialsRequest;
 import org.signal.chat.backup.GetBackupAuthCredentialsResponse;
-import org.signal.chat.backup.ReactorBackupsGrpc;
 import org.signal.chat.backup.RedeemReceiptRequest;
 import org.signal.chat.backup.RedeemReceiptResponse;
 import org.signal.chat.backup.SetBackupIdRequest;
 import org.signal.chat.backup.SetBackupIdResponse;
+import org.signal.chat.backup.SimpleBackupsGrpc;
 import org.signal.chat.common.ZkCredential;
+import org.signal.chat.errors.FailedPrecondition;
 import org.signal.libsignal.zkgroup.InvalidInputException;
 import org.signal.libsignal.zkgroup.backups.BackupAuthCredentialRequest;
 import org.signal.libsignal.zkgroup.backups.BackupCredentialType;
@@ -28,14 +30,20 @@ import org.whispersystems.textsecuregcm.auth.RedemptionRange;
 import org.whispersystems.textsecuregcm.auth.grpc.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.auth.grpc.AuthenticationUtil;
 import org.whispersystems.textsecuregcm.backup.BackupAuthManager;
+import org.whispersystems.textsecuregcm.backup.BackupBadReceiptException;
+import org.whispersystems.textsecuregcm.backup.BackupInvalidArgumentException;
+import org.whispersystems.textsecuregcm.backup.BackupMissingIdCommitmentException;
+import org.whispersystems.textsecuregcm.backup.BackupNotFoundException;
+import org.whispersystems.textsecuregcm.backup.BackupPermissionException;
+import org.whispersystems.textsecuregcm.backup.BackupWrongCredentialTypeException;
+import org.whispersystems.textsecuregcm.controllers.RateLimitExceededException;
 import org.whispersystems.textsecuregcm.metrics.BackupMetrics;
 import org.whispersystems.textsecuregcm.metrics.UserAgentTagUtil;
 import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.Device;
-import reactor.core.publisher.Mono;
 
-public class BackupsGrpcService extends ReactorBackupsGrpc.BackupsImplBase {
+public class BackupsGrpcService extends SimpleBackupsGrpc.BackupsImplBase {
 
   private final AccountsManager accountManager;
   private final BackupAuthManager backupAuthManager;
@@ -48,7 +56,8 @@ public class BackupsGrpcService extends ReactorBackupsGrpc.BackupsImplBase {
   }
 
   @Override
-  public Mono<SetBackupIdResponse> setBackupId(SetBackupIdRequest request) {
+  public SetBackupIdResponse setBackupId(SetBackupIdRequest request)
+      throws RateLimitExceededException, BackupInvalidArgumentException, BackupPermissionException {
 
     final Optional<BackupAuthCredentialRequest> messagesCredentialRequest = deserializeWithEmptyPresenceCheck(
         BackupAuthCredentialRequest::new,
@@ -59,28 +68,33 @@ public class BackupsGrpcService extends ReactorBackupsGrpc.BackupsImplBase {
         request.getMediaBackupAuthCredentialRequest());
 
     final AuthenticatedDevice authenticatedDevice = AuthenticationUtil.requireAuthenticatedDevice();
-    return authenticatedAccount()
-        .flatMap(account -> {
-          final Device device = account
-              .getDevice(authenticatedDevice.deviceId())
-              .orElseThrow(Status.UNAUTHENTICATED::asRuntimeException);
-          return Mono.fromFuture(
-              backupAuthManager.commitBackupId(account, device, messagesCredentialRequest, mediaCredentialRequest));
-        })
-        .thenReturn(SetBackupIdResponse.getDefaultInstance());
+    final Account account = authenticatedAccount();
+    final Device device = account
+        .getDevice(authenticatedDevice.deviceId())
+        .orElseThrow(Status.UNAUTHENTICATED::asRuntimeException);
+    backupAuthManager.commitBackupId(account, device, messagesCredentialRequest, mediaCredentialRequest);
+    return SetBackupIdResponse.getDefaultInstance();
   }
 
-  public Mono<RedeemReceiptResponse> redeemReceipt(RedeemReceiptRequest request) {
+  public RedeemReceiptResponse redeemReceipt(RedeemReceiptRequest request) throws BackupInvalidArgumentException {
     final ReceiptCredentialPresentation receiptCredentialPresentation = deserialize(
         ReceiptCredentialPresentation::new,
         request.getPresentation().toByteArray());
-    return authenticatedAccount()
-        .flatMap(account -> Mono.fromFuture(backupAuthManager.redeemReceipt(account, receiptCredentialPresentation)))
-        .thenReturn(RedeemReceiptResponse.getDefaultInstance());
+    final Account account = authenticatedAccount();
+    final RedeemReceiptResponse.Builder builder = RedeemReceiptResponse.newBuilder();
+    try {
+      backupAuthManager.redeemReceipt(account, receiptCredentialPresentation);
+      builder.setSuccess(Empty.getDefaultInstance());
+    } catch (BackupBadReceiptException e) {
+      builder.setInvalidReceipt(FailedPrecondition.newBuilder().setDescription(e.getMessage()).build());
+    } catch (BackupMissingIdCommitmentException e) {
+      builder.setAccountMissingCommitment(FailedPrecondition.newBuilder().build());
+    }
+    return builder.build();
   }
 
   @Override
-  public Mono<GetBackupAuthCredentialsResponse> getBackupAuthCredentials(GetBackupAuthCredentialsRequest request) {
+  public GetBackupAuthCredentialsResponse getBackupAuthCredentials(GetBackupAuthCredentialsRequest request) {
     final Tag platformTag = UserAgentTagUtil.getPlatformTag(RequestAttributesUtil.getUserAgent().orElse(null));
     final RedemptionRange redemptionRange;
     try {
@@ -90,46 +104,58 @@ public class BackupsGrpcService extends ReactorBackupsGrpc.BackupsImplBase {
     } catch (IllegalArgumentException e) {
       throw Status.INVALID_ARGUMENT.withDescription(e.getMessage()).asRuntimeException();
     }
-    return authenticatedAccount().flatMap(account -> {
-      final Mono<List<BackupAuthManager.Credential>> messageCredentials = Mono.fromCompletionStage(() ->
+    final Account account = authenticatedAccount();
+    try {
+      final List<BackupAuthManager.Credential> messageCredentials =
           backupAuthManager.getBackupAuthCredentials(
               account,
               BackupCredentialType.MESSAGES,
-              redemptionRange))
-          .doOnSuccess(credentials ->
-              backupMetrics.updateGetCredentialCounter(platformTag, BackupCredentialType.MESSAGES, credentials.size()));
+              redemptionRange);
+      backupMetrics.updateGetCredentialCounter(platformTag, BackupCredentialType.MESSAGES, messageCredentials.size());
 
-      final Mono<List<BackupAuthManager.Credential>> mediaCredentials = Mono.fromCompletionStage(() ->
+      final List<BackupAuthManager.Credential> mediaCredentials =
           backupAuthManager.getBackupAuthCredentials(
               account,
               BackupCredentialType.MEDIA,
-              redemptionRange))
-          .doOnSuccess(credentials ->
-              backupMetrics.updateGetCredentialCounter(platformTag, BackupCredentialType.MEDIA, credentials.size()));
+              redemptionRange);
+      backupMetrics.updateGetCredentialCounter(platformTag, BackupCredentialType.MEDIA, mediaCredentials.size());
 
-      return messageCredentials.zipWith(mediaCredentials, (messageCreds, mediaCreds) ->
-          GetBackupAuthCredentialsResponse.newBuilder()
-              .putAllMessageCredentials(messageCreds.stream().collect(Collectors.toMap(
+      return GetBackupAuthCredentialsResponse.newBuilder()
+          .setCredentials(GetBackupAuthCredentialsResponse.Credentials.newBuilder()
+              .putAllMessageCredentials(messageCredentials.stream().collect(Collectors.toMap(
                   c -> c.redemptionTime().getEpochSecond(),
                   c -> ZkCredential.newBuilder()
                       .setCredential(ByteString.copyFrom(c.credential().serialize()))
                       .setRedemptionTime(c.redemptionTime().getEpochSecond())
                       .build())))
-              .putAllMediaCredentials(mediaCreds.stream().collect(Collectors.toMap(
+              .putAllMediaCredentials(mediaCredentials.stream().collect(Collectors.toMap(
                   c -> c.redemptionTime().getEpochSecond(),
                   c -> ZkCredential.newBuilder()
                       .setCredential(ByteString.copyFrom(c.credential().serialize()))
                       .setRedemptionTime(c.redemptionTime().getEpochSecond())
                       .build())))
-              .build());
-    });
+              .build())
+          .build();
+    } catch (BackupNotFoundException _) {
+      // Return an empty response to indicate that the authenticated account had no associated blinded backup-id
+      return GetBackupAuthCredentialsResponse.getDefaultInstance();
+    }
   }
 
-  private Mono<Account> authenticatedAccount() {
-    final AuthenticatedDevice authenticatedDevice = AuthenticationUtil.requireAuthenticatedDevice();
-    return Mono
-        .fromFuture(() -> accountManager.getByAccountIdentifierAsync(authenticatedDevice.accountIdentifier()))
-        .map(maybeAccount -> maybeAccount.orElseThrow(Status.UNAUTHENTICATED::asRuntimeException));
+  @Override
+  public Throwable mapException(final Throwable throwable) {
+    return switch (throwable) {
+      case BackupInvalidArgumentException e -> GrpcExceptions.invalidArguments(e.getMessage());
+      case BackupPermissionException e -> GrpcExceptions.badAuthentication(e.getMessage());
+      case BackupWrongCredentialTypeException e -> GrpcExceptions.badAuthentication(e.getMessage());
+      default -> throwable;
+    };
+  }
+
+  private Account authenticatedAccount() {
+    return accountManager
+        .getByAccountIdentifier(AuthenticationUtil.requireAuthenticatedDevice().accountIdentifier())
+        .orElseThrow(Status.UNAUTHENTICATED::asRuntimeException);
   }
 
   private interface Deserializer<T> {

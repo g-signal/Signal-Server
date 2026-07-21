@@ -80,6 +80,10 @@ public class DynamicConfiguration {
   @Valid
   DynamicGExtRobotConfiguration gextRobot = new DynamicGExtRobotConfiguration();
 
+  @JsonProperty
+  @Valid
+  private DynamicCarrierDataLookupConfiguration carrierDataLookup = new DynamicCarrierDataLookupConfiguration();
+
   public Optional<DynamicExperimentEnrollmentConfiguration> getExperimentEnrollmentConfiguration(
       final String experimentName) {
     return Optional.ofNullable(experiments.get(experimentName));
@@ -144,5 +148,9 @@ public class DynamicConfiguration {
 
   public DynamicGExtRobotConfiguration getGextRobot() {
     return gextRobot;
+  }
+
+  public DynamicCarrierDataLookupConfiguration getCarrierDataLookupConfiguration() {
+    return carrierDataLookup;
   }
 }

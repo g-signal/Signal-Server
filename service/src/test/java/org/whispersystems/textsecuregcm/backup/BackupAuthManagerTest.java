@@ -6,12 +6,12 @@
 package org.whispersystems.textsecuregcm.backup;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatException;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -20,8 +20,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -64,7 +62,6 @@ import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.Device;
 import org.whispersystems.textsecuregcm.storage.RedeemedReceiptsManager;
 import org.whispersystems.textsecuregcm.tests.util.ExperimentHelper;
-import org.whispersystems.textsecuregcm.util.CompletableFutureTestUtil;
 import org.whispersystems.textsecuregcm.util.TestClock;
 import org.whispersystems.textsecuregcm.util.TestRandomUtil;
 
@@ -107,19 +104,18 @@ public class BackupAuthManagerTest {
   }
 
   @Test
-  void commitBackupId() {
+  void commitBackupId() throws RateLimitExceededException, BackupInvalidArgumentException, BackupPermissionException {
     final BackupAuthManager authManager = create();
 
     final Account account = mock(Account.class);
     when(account.getUuid()).thenReturn(aci);
-    when(accountsManager.updateAsync(any(), any()))
+    when(accountsManager.update(any(), any()))
         .thenAnswer(invocation -> {
           final Account a = invocation.getArgument(0);
           final Consumer<Account> updater = invocation.getArgument(1);
 
           updater.accept(a);
-
-          return CompletableFuture.completedFuture(a);
+          return a;
         });
 
     final BackupAuthCredentialRequest messagesCredentialRequest = backupAuthTestUtil.getRequest(messagesBackupKey, aci);
@@ -127,7 +123,7 @@ public class BackupAuthManagerTest {
 
     authManager.commitBackupId(account, primaryDevice(),
         Optional.of(messagesCredentialRequest),
-        Optional.of(mediaCredentialRequest)).join();
+        Optional.of(mediaCredentialRequest));
 
     verify(account).setBackupCredentialRequests(messagesCredentialRequest.serialize(),
         mediaCredentialRequest.serialize());
@@ -138,13 +134,13 @@ public class BackupAuthManagerTest {
   void commitOnAnyBackupLevel(final BackupLevel backupLevel) {
     final BackupAuthManager authManager = create();
     final Account account = new MockAccountBuilder().backupLevel(backupLevel).build();
-    when(accountsManager.updateAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(account));
+    when(accountsManager.update(any(), any())).thenReturn(account);
 
     final ThrowableAssert.ThrowingCallable commit = () ->
         authManager.commitBackupId(account,
             primaryDevice(),
             Optional.of(backupAuthTestUtil.getRequest(messagesBackupKey, aci)),
-            Optional.of(backupAuthTestUtil.getRequest(mediaBackupKey, aci))).join();
+            Optional.of(backupAuthTestUtil.getRequest(mediaBackupKey, aci)));
     Assertions.assertThatNoException().isThrownBy(commit);
   }
 
@@ -152,22 +148,20 @@ public class BackupAuthManagerTest {
   void commitRequiresPrimary() {
     final BackupAuthManager authManager = create();
     final Account account = new MockAccountBuilder().build();
-    when(accountsManager.updateAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(account));
+    when(accountsManager.update(any(), any())).thenReturn(account);
 
     final ThrowableAssert.ThrowingCallable commit = () ->
         authManager.commitBackupId(account,
             linkedDevice(),
             Optional.of(backupAuthTestUtil.getRequest(messagesBackupKey, aci)),
-            Optional.of(backupAuthTestUtil.getRequest(mediaBackupKey, aci))).join();
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(commit)
-        .extracting(ex -> ex.getStatus().getCode())
-        .isEqualTo(Status.Code.PERMISSION_DENIED);
+            Optional.of(backupAuthTestUtil.getRequest(mediaBackupKey, aci)));
+    assertThatExceptionOfType(BackupPermissionException.class)
+        .isThrownBy(commit);
   }
 
   @CartesianTest
   void paidTierCredentialViaConfiguration(@CartesianTest.Enum final BackupCredentialType credentialType)
-      throws VerificationFailedException {
+      throws VerificationFailedException, BackupNotFoundException {
     final BackupAuthManager authManager = create(BackupLevel.PAID, rateLimiter(aci, false, false));
 
     final byte[] backupKey = switch (credentialType) {
@@ -186,7 +180,7 @@ public class BackupAuthManagerTest {
 
     final RedemptionRange range = range(Duration.ofDays(1));
     final List<BackupAuthManager.Credential> creds =
-        authManager.getBackupAuthCredentials(account, credentialType, range(Duration.ofDays(1))).join();
+        authManager.getBackupAuthCredentials(account, credentialType, range(Duration.ofDays(1)));
 
     assertThat(creds).hasSize(2);
     assertThat(requestContext
@@ -197,7 +191,7 @@ public class BackupAuthManagerTest {
 
   @CartesianTest
   void getBackupAuthCredentials(@CartesianTest.Enum final BackupLevel backupLevel,
-      @CartesianTest.Enum final BackupCredentialType credentialType) {
+      @CartesianTest.Enum final BackupCredentialType credentialType) throws BackupNotFoundException {
 
     final BackupAuthManager authManager = create();
 
@@ -207,7 +201,7 @@ public class BackupAuthManagerTest {
         .mediaCredential(backupAuthTestUtil.getRequest(mediaBackupKey, aci))
         .build();
 
-    assertThat(authManager.getBackupAuthCredentials(account, credentialType, range(Duration.ofDays(1))).join())
+    assertThat(authManager.getBackupAuthCredentials(account, credentialType, range(Duration.ofDays(1))))
         .hasSize(2);
   }
 
@@ -218,16 +212,14 @@ public class BackupAuthManagerTest {
 
     final Account account = new MockAccountBuilder().build();
 
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() ->
-            authManager.getBackupAuthCredentials(account, credentialType, range(Duration.ofDays(1))).join())
-        .extracting(ex -> ex.getStatus().getCode())
-        .isEqualTo(Status.Code.NOT_FOUND);
+    assertThatExceptionOfType(BackupNotFoundException.class)
+        .isThrownBy(() -> authManager.getBackupAuthCredentials(account, credentialType, range(Duration.ofDays(1))));
   }
 
   @CartesianTest
   void getReceiptCredentials(@CartesianTest.Enum final BackupLevel backupLevel,
-      @CartesianTest.Enum final BackupCredentialType credentialType) throws VerificationFailedException {
+      @CartesianTest.Enum final BackupCredentialType credentialType)
+      throws VerificationFailedException, BackupNotFoundException {
     final BackupAuthManager authManager = create();
 
     final byte[] backupKey = switch (credentialType) {
@@ -245,7 +237,7 @@ public class BackupAuthManagerTest {
         .build();
 
     final List<BackupAuthManager.Credential> creds = authManager.getBackupAuthCredentials(account,
-        credentialType, range(Duration.ofDays(7))).join();
+        credentialType, range(Duration.ofDays(7)));
 
     assertThat(creds).hasSize(8);
     Instant redemptionTime = clock.instant().truncatedTo(ChronoUnit.DAYS);
@@ -260,7 +252,7 @@ public class BackupAuthManagerTest {
   }
 
   @Test
-  void expiringBackupPayment() throws VerificationFailedException {
+  void expiringBackupPayment() throws VerificationFailedException, BackupNotFoundException {
     clock.pin(Instant.ofEpochSecond(1));
     final Instant day4 = Instant.EPOCH.plus(Duration.ofDays(4));
 
@@ -275,7 +267,7 @@ public class BackupAuthManagerTest {
     final List<BackupAuthManager.Credential> creds = authManager.getBackupAuthCredentials(
             account,
             BackupCredentialType.MESSAGES,
-            range(RedemptionRange.MAX_REDEMPTION_DURATION)).join();
+            range(RedemptionRange.MAX_REDEMPTION_DURATION));
     Instant redemptionTime = Instant.EPOCH;
     final BackupAuthCredentialRequestContext requestContext = BackupAuthCredentialRequestContext.create(
         messagesBackupKey, aci);
@@ -293,7 +285,7 @@ public class BackupAuthManagerTest {
   }
 
   @Test
-  void expiredBackupPayment() {
+  void expiredBackupPayment() throws BackupNotFoundException {
     final Instant day1 = Instant.EPOCH.plus(Duration.ofDays(1));
     final Instant day2 = Instant.EPOCH.plus(Duration.ofDays(2));
     final Instant day3 = Instant.EPOCH.plus(Duration.ofDays(3));
@@ -311,15 +303,15 @@ public class BackupAuthManagerTest {
         .backupVoucher(null)
         .build();
 
-    when(accountsManager.updateAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(updated));
+    when(accountsManager.update(any(), any())).thenReturn(updated);
 
     clock.pin(day2.plus(Duration.ofSeconds(1)));
-    assertThat(authManager.getBackupAuthCredentials(account, BackupCredentialType.MESSAGES, range(Duration.ofDays(7))).join())
+    assertThat(authManager.getBackupAuthCredentials(account, BackupCredentialType.MESSAGES, range(Duration.ofDays(7))))
         .hasSize(8);
 
     @SuppressWarnings("unchecked") final ArgumentCaptor<Consumer<Account>> accountUpdater = ArgumentCaptor.forClass(
         Consumer.class);
-    verify(accountsManager, times(1)).updateAsync(any(), accountUpdater.capture());
+    verify(accountsManager, times(1)).update(any(), accountUpdater.capture());
 
     // If the account is not expired when we go to update it, we shouldn't wipe it out
     final Account alreadyUpdated = mock(Account.class);
@@ -336,18 +328,19 @@ public class BackupAuthManagerTest {
 
 
   @Test
-  void redeemReceipt() throws InvalidInputException, VerificationFailedException {
+  void redeemReceipt()
+      throws InvalidInputException, VerificationFailedException, BackupInvalidArgumentException, BackupMissingIdCommitmentException, BackupBadReceiptException {
     final Instant expirationTime = Instant.EPOCH.plus(Duration.ofDays(1));
     final BackupAuthManager authManager = create();
     final Account account = new MockAccountBuilder()
         .mediaCredential(Optional.of(new byte[0]))
         .build();
     clock.pin(Instant.EPOCH.plus(Duration.ofDays(1)));
-    when(accountsManager.updateAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(account));
+    when(accountsManager.update(any(), any())).thenReturn(account);
     when(redeemedReceiptsManager.put(any(), eq(expirationTime.getEpochSecond()), eq(201L), eq(aci)))
         .thenReturn(CompletableFuture.completedFuture(true));
-    authManager.redeemReceipt(account, receiptPresentation(201, expirationTime)).join();
-    verify(accountsManager, times(1)).updateAsync(any(), any());
+    authManager.redeemReceipt(account, receiptPresentation(201, expirationTime));
+    verify(accountsManager, times(1)).update(any(), any());
   }
 
   @Test
@@ -359,15 +352,13 @@ public class BackupAuthManagerTest {
     clock.pin(Instant.EPOCH.plus(Duration.ofDays(1)));
     when(redeemedReceiptsManager.put(any(), eq(expirationTime.getEpochSecond()), eq(201L), eq(aci)))
         .thenReturn(CompletableFuture.completedFuture(true));
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() ->
-            authManager.redeemReceipt(account, receiptPresentation(201, expirationTime)).join())
-        .extracting(ex -> ex.getStatus().getCode())
-        .isEqualTo(Status.Code.ABORTED);
+    assertThatExceptionOfType(BackupMissingIdCommitmentException.class)
+        .isThrownBy(() -> authManager.redeemReceipt(account, receiptPresentation(201, expirationTime)));
   }
 
   @Test
-  void mergeRedemptions() throws InvalidInputException, VerificationFailedException {
+  void mergeRedemptions()
+      throws InvalidInputException, VerificationFailedException, BackupInvalidArgumentException, BackupMissingIdCommitmentException, BackupBadReceiptException {
     final Instant newExpirationTime = Instant.EPOCH.plus(Duration.ofDays(1));
     final Instant existingExpirationTime = Instant.EPOCH.plus(Duration.ofDays(1)).plus(Duration.ofSeconds(1));
 
@@ -379,13 +370,13 @@ public class BackupAuthManagerTest {
         .build();
 
     clock.pin(Instant.EPOCH.plus(Duration.ofDays(1)));
-    when(accountsManager.updateAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(account));
+    when(accountsManager.update(any(), any())).thenReturn(account);
     when(redeemedReceiptsManager.put(any(), eq(newExpirationTime.getEpochSecond()), eq(201L), eq(aci)))
         .thenReturn(CompletableFuture.completedFuture(true));
-    authManager.redeemReceipt(account, receiptPresentation(201, newExpirationTime)).join();
+    authManager.redeemReceipt(account, receiptPresentation(201, newExpirationTime));
 
     final ArgumentCaptor<Consumer<Account>> updaterCaptor = ArgumentCaptor.captor();
-    verify(accountsManager, times(1)).updateAsync(any(), updaterCaptor.capture());
+    verify(accountsManager, times(1)).update(any(), updaterCaptor.capture());
 
     updaterCaptor.getValue().accept(account);
     // Should select the voucher with the later expiration time
@@ -397,10 +388,8 @@ public class BackupAuthManagerTest {
     final Instant expirationTime = Instant.EPOCH.plus(Duration.ofDays(1));
     clock.pin(expirationTime.plus(Duration.ofSeconds(1)));
     final BackupAuthManager authManager = create();
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> authManager.redeemReceipt(mock(Account.class), receiptPresentation(3, expirationTime)).join())
-        .extracting(ex -> ex.getStatus().getCode())
-        .isEqualTo(Status.Code.INVALID_ARGUMENT);
+    assertThatExceptionOfType(BackupBadReceiptException.class)
+        .isThrownBy(() -> authManager.redeemReceipt(mock(Account.class), receiptPresentation(3, expirationTime)));
     verifyNoInteractions(accountsManager);
     verifyNoInteractions(redeemedReceiptsManager);
   }
@@ -411,11 +400,8 @@ public class BackupAuthManagerTest {
     final Instant expirationTime = Instant.EPOCH.plus(Duration.ofDays(1));
     clock.pin(expirationTime.plus(Duration.ofSeconds(1)));
     final BackupAuthManager authManager = create();
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() ->
-            authManager.redeemReceipt(mock(Account.class), receiptPresentation(level, expirationTime)).join())
-        .extracting(ex -> ex.getStatus().getCode())
-        .isEqualTo(Status.Code.INVALID_ARGUMENT);
+    assertThatExceptionOfType(BackupBadReceiptException.class)
+        .isThrownBy(() -> authManager.redeemReceipt(mock(Account.class), receiptPresentation(level, expirationTime)));
     verifyNoInteractions(accountsManager);
     verifyNoInteractions(redeemedReceiptsManager);
   }
@@ -424,16 +410,14 @@ public class BackupAuthManagerTest {
   void redeemInvalidPresentation() throws InvalidInputException, VerificationFailedException {
     final BackupAuthManager authManager = create();
     final ReceiptCredentialPresentation invalid = receiptPresentation(ServerSecretParams.generate(), 3L, Instant.EPOCH);
-    assertThatExceptionOfType(StatusRuntimeException.class)
-        .isThrownBy(() -> authManager.redeemReceipt(mock(Account.class), invalid).join())
-        .extracting(ex -> ex.getStatus().getCode())
-        .isEqualTo(Status.Code.INVALID_ARGUMENT);
+    assertThatExceptionOfType(BackupBadReceiptException.class)
+        .isThrownBy(() -> authManager.redeemReceipt(mock(Account.class), invalid));
     verifyNoInteractions(accountsManager);
     verifyNoInteractions(redeemedReceiptsManager);
   }
 
   @Test
-  void receiptAlreadyRedeemed() throws InvalidInputException, VerificationFailedException {
+  void receiptAlreadyRedeemed()  {
     final Instant expirationTime = Instant.EPOCH.plus(Duration.ofDays(1));
     final BackupAuthManager authManager = create();
     final Account account = new MockAccountBuilder()
@@ -441,14 +425,12 @@ public class BackupAuthManagerTest {
         .build();
 
     clock.pin(Instant.EPOCH.plus(Duration.ofDays(1)));
-    when(accountsManager.updateAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(account));
+    when(accountsManager.update(any(), any())).thenReturn(account);
     when(redeemedReceiptsManager.put(any(), eq(expirationTime.getEpochSecond()), eq(201L), eq(aci)))
         .thenReturn(CompletableFuture.completedFuture(false));
 
-    final CompletableFuture<Void> result = authManager.redeemReceipt(account, receiptPresentation(201, expirationTime));
-    assertThat(CompletableFutureTestUtil.assertFailsWithCause(StatusRuntimeException.class, result))
-        .extracting(ex -> ex.getStatus().getCode())
-        .isEqualTo(Status.Code.INVALID_ARGUMENT);
+    assertThatExceptionOfType(BackupBadReceiptException.class)
+        .isThrownBy(() -> authManager.redeemReceipt(account, receiptPresentation(201, expirationTime)));
     verifyNoInteractions(accountsManager);
   }
 
@@ -484,8 +466,7 @@ public class BackupAuthManagerTest {
             ? new Account.BackupVoucher(1, Instant.EPOCH.plus(Duration.ofSeconds(1)))
             : null)
         .build();
-    final BackupAuthManager.BackupIdRotationLimit limit = authManager.checkBackupIdRotationLimit(account)
-        .toCompletableFuture().join();
+    final BackupAuthManager.BackupIdRotationLimit limit = authManager.checkBackupIdRotationLimit(account);
     final boolean expectHasPermits = !messageLimited && (!mediaLimited || !hasVoucher);
     final Duration expectedDuration = expectHasPermits ? Duration.ZERO : Duration.ofDays(1);
     assertThat(limit.hasPermitsRemaining()).isEqualTo(expectHasPermits);
@@ -524,7 +505,7 @@ public class BackupAuthManagerTest {
         .backupVoucher(backupVoucher)
         .build();
 
-    when(accountsManager.updateAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(account));
+    when(accountsManager.update(any(), any())).thenReturn(account);
 
     final Optional<BackupAuthCredentialRequest> newMessagesCredential = switch (messageChange) {
       case MATCH -> Optional.of(storedMessagesCredential);
@@ -543,15 +524,13 @@ public class BackupAuthManagerTest {
     final boolean expectRateLimit = ((mediaChange == CredentialChangeType.MISMATCH) && rateLimitMediaBackupId && paid)
         || ((messageChange == CredentialChangeType.MISMATCH) && rateLimitMessagesBackupId);
     final ThrowableAssert.ThrowingCallable commit = () ->
-        authManager.commitBackupId(account, primaryDevice(), newMessagesCredential, newMediaCredential).join();
+        authManager.commitBackupId(account, primaryDevice(), newMessagesCredential, newMediaCredential);
 
     if (messageChange == CredentialChangeType.NO_UPDATE && mediaChange == CredentialChangeType.NO_UPDATE) {
-      assertThatExceptionOfType(StatusRuntimeException.class)
-          .isThrownBy(commit)
-          .extracting(ex -> ex.getStatus().getCode())
-          .isEqualTo(Status.Code.INVALID_ARGUMENT);
+      assertThatExceptionOfType(BackupInvalidArgumentException.class)
+          .isThrownBy(commit);
     } else if (expectRateLimit) {
-      assertThatException().isThrownBy(commit).withRootCauseInstanceOf(RateLimitExceededException.class);
+      assertThatExceptionOfType(RateLimitExceededException.class).isThrownBy(commit);
     } else {
       assertThatNoException().isThrownBy(commit);
     }
@@ -611,26 +590,29 @@ public class BackupAuthManagerTest {
   }
 
 
-  private static RateLimiters rateLimiter(final UUID aci, boolean rateLimitBackupId,
-      boolean rateLimitPaidMediaBackupId) {
-    final RateLimiters limiters = mock(RateLimiters.class);
+  private static RateLimiters rateLimiter(final UUID aci, boolean rateLimitBackupId, boolean rateLimitPaidMediaBackupId) {
+    try {
+      final RateLimiters limiters = mock(RateLimiters.class);
 
-    final RateLimiter allowLimiter = mock(RateLimiter.class);
-    when(allowLimiter.hasAvailablePermitsAsync(eq(aci), anyLong())).thenReturn(CompletableFuture.completedFuture(true));
-    when(allowLimiter.validateAsync(aci)).thenReturn(CompletableFuture.completedFuture(null));
-    when(allowLimiter.config()).thenReturn(new RateLimiterConfig(1, Duration.ofDays(1), false));
+      final RateLimiter allowLimiter = mock(RateLimiter.class);
+      when(allowLimiter.hasAvailablePermitsAsync(eq(aci), anyLong())).thenReturn(
+          CompletableFuture.completedFuture(true));
+      when(allowLimiter.config()).thenReturn(new RateLimiterConfig(1, Duration.ofDays(1), false));
 
-    final RateLimiter denyLimiter = mock(RateLimiter.class);
-    when(denyLimiter.hasAvailablePermitsAsync(eq(aci), anyLong())).thenReturn(CompletableFuture.completedFuture(false));
-    when(denyLimiter.validateAsync(aci))
-        .thenReturn(CompletableFuture.failedFuture(new RateLimitExceededException(null)));
-    when(denyLimiter.config()).thenReturn(new RateLimiterConfig(1, Duration.ofDays(1), false));
+      final RateLimiter denyLimiter = mock(RateLimiter.class);
+      when(denyLimiter.hasAvailablePermitsAsync(eq(aci), anyLong())).thenReturn(
+          CompletableFuture.completedFuture(false));
+      doThrow(new RateLimitExceededException(null)).when(denyLimiter).validate(aci);
+      when(denyLimiter.config()).thenReturn(new RateLimiterConfig(1, Duration.ofDays(1), false));
 
-    when(limiters.forDescriptor(RateLimiters.For.SET_BACKUP_ID))
-        .thenReturn(rateLimitBackupId ? denyLimiter : allowLimiter);
-    when(limiters.forDescriptor(RateLimiters.For.SET_PAID_MEDIA_BACKUP_ID))
-        .thenReturn(rateLimitPaidMediaBackupId ? denyLimiter : allowLimiter);
-    return limiters;
+      when(limiters.forDescriptor(RateLimiters.For.SET_BACKUP_ID))
+          .thenReturn(rateLimitBackupId ? denyLimiter : allowLimiter);
+      when(limiters.forDescriptor(RateLimiters.For.SET_PAID_MEDIA_BACKUP_ID))
+          .thenReturn(rateLimitPaidMediaBackupId ? denyLimiter : allowLimiter);
+      return limiters;
+    } catch (RateLimitExceededException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private RedemptionRange range(Duration length) {
