@@ -5,10 +5,12 @@
 
 package org.whispersystems.textsecuregcm.configuration;
 
+import jakarta.validation.constraints.NotNull;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretString;
 import javax.annotation.Nullable;
 
-public record HlrLookupConfiguration(SecretString apiKey,
+public record HlrLookupConfiguration(@NotNull Boolean enabled,
+                                     SecretString apiKey,
                                      SecretString apiSecret,
                                      @Nullable String circuitBreakerConfigurationName,
                                      @Nullable String retryConfigurationName) {

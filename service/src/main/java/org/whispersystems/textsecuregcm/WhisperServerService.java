@@ -650,13 +650,16 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         new RegistrationRecoveryPasswordsManager(registrationRecoveryPasswords);
     UsernameHashZkProofVerifier usernameHashZkProofVerifier = new UsernameHashZkProofVerifier();
 
-    final CarrierDataProvider carrierDataProvider =
-        new HlrLookupCarrierDataProvider(config.getHlrLookupConfiguration().apiKey().value(),
-            config.getHlrLookupConfiguration().apiSecret().value(),
-            hlrLookupHttpExecutor,
-            config.getHlrLookupConfiguration().circuitBreakerConfigurationName(),
-            config.getHlrLookupConfiguration().retryConfigurationName(),
-            retryExecutor);
+    CarrierDataProvider carrierDataProvider = null;
+    if(config.getHlrLookupConfiguration().enabled()){
+      carrierDataProvider =
+          new HlrLookupCarrierDataProvider(config.getHlrLookupConfiguration().apiKey().value(),
+              config.getHlrLookupConfiguration().apiSecret().value(),
+              hlrLookupHttpExecutor,
+              config.getHlrLookupConfiguration().circuitBreakerConfigurationName(),
+              config.getHlrLookupConfiguration().retryConfigurationName(),
+              retryExecutor);
+    }
 
     RegistrationServiceClient registrationServiceClient = config.getRegistrationServiceConfiguration()
         .build(environment, registrationCallbackExecutor, registrationIdentityTokenRefreshExecutor);

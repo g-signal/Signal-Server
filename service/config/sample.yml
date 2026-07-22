@@ -575,5 +575,6 @@ gextTag:
   extTagCaCertificatesEnabled: false
 
 hlrLookup:
+  enabled: false
   apiKey: secret://hlrLookup.apiKey
   apiSecret: secret://hlrLookup.apiSecret
